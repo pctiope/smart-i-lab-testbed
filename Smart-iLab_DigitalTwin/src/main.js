@@ -1,36 +1,20 @@
-// ---------- Some node package manager installs necessary ----------
-// npm install three
-// npm install gsap
-
-const ip = "http://10.158.66.30:80"; // IP of REST API
-
-
-
+// §7.2 — REST API origin via Vite env (`VITE_API_URL` in .env / .env.local), fallback to localhost.
+const ip = import.meta.env.VITE_API_URL || "http://localhost";
 
 // ---------- Foundation of the Scene ----------
-// [0] Import Modules
+// [0] Import Modules — §7.1 use bundled deps from package.json so Vite/Rollup ships hashed,
+// integrity-checked bundles instead of pulling raw modules from cdn.jsdelivr.net at runtime.
 
-// ThreeJS for 3D Scenes Support
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js';
-// OrbitControls for 3D Camera Controls
-import { OrbitControls } from "https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/controls/OrbitControls.js";
-// GLTFLoader for .gltf file-loading
-import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/loaders/GLTFLoader.js";
-// OutlinePass for outlines
-import { OutlinePass } from 'https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/postprocessing/OutlinePass.js';
-// EffectComposer for OutlinePass support?
-import { EffectComposer } from 'https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/postprocessing/EffectComposer.js';
-// RenderPass for OutlinePass support?
-import { RenderPass } from 'https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/postprocessing/RenderPass.js';
-// ShaderPass for shadow correction in tandem with GammaCorrectionShader
-import { ShaderPass } from 'https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/postprocessing/ShaderPass.js';
-// Gamma correction because Effect Composer makes scene darker
-import { GammaCorrectionShader } from 'https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/shaders/GammaCorrectionShader.js';
-// CSS2D for HTML Position Projection 
-import { CSS2DRenderer, CSS2DObject } from 'https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/renderers/CSS2DRenderer.js';
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { DoubleSide } from 'three';
-// Chart.js for data visualization -- graphical representation
-//import { Chart } from './node_modules/chart.js/auto/auto.js';
 
 
 // [1] The Three + 1 Fundamentals

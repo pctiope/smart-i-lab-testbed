@@ -2,46 +2,80 @@ services:
   webapp:
     container_name: rest_api_compose
     build: ./SSL-IoT1-REST
-    ports: 
-      - ""
+    restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      - HOST_PORT=
-      - DATABASE_IP=
-      - DATABASE_PORT=
-      - DATABASE_USERNAME=
-      - DATABASE_PASSWORD=
-      - DATABASE_NAME=
-      - MQTT_IP=
-      - MQTT_PORT=
-      - MQTT_CLIENT_ID=
-      - MQTT_USERNAME=
-      - MQTT_PASSWORD=
-      - MQTT_RECONNECT_PERIOD=
-      - HOME_ASSISTANT_URL=
-      - HOME_ASSISTANT_PORT=
-      - HOME_ASSISTANT_TOKEN=
+      - HOST_PORT=3000
+      - ALLOWED_ORIGINS=http://localhost:5500
+    ports:
+      - "80:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3000/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   web:
-    build: ./Smart-iLab_DigitalTwin
+    build:
+      context: ./Smart-iLab_DigitalTwin
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost}
     container_name: digital_twin_compose
-    ports: 
-      - ""
+    restart: unless-stopped
+    ports:
+      - "5500:80"
+    depends_on:
+      webapp:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
-  backend:
-    container_name: python_to_db_compose
+  # §6.5 — split the single run.sh-driven container into 3 single-purpose containers.
+  # Each runs one subscriber so a crash in one bridge can't take the others down silently.
+  databridge-esp:
+    container_name: databridge_esp
     build: ./Smart-iLAB-Python-Files
-    environment:
-      - DATABASE_IP=
-      - DATABASE_PORT=
-      - DATABASE_USERNAME=
-      - DATABASE_PASSWORD=
-      - DATABASE_NAME=
-      - MQTT_IP=
-      - MQTT_PORT=
-      - MQTT_CLIENT_ID=
-      - MQTT_USERNAME=
-      - MQTT_PASSWORD=
-      - MQTT_RECONNECT_PERIOD=
-      - HOME_ASSISTANT_URL=
-      - HOME_ASSISTANT_PORT=
-      - HOME_ASSISTANT_TOKEN=
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: ["python3", "-u", "ESPDevices_to_Database.py"]
+    healthcheck:
+      test: ["CMD-SHELL", "ps -ef | grep -v grep | grep -q ESPDevices_to_Database || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  databridge-zigbee:
+    container_name: databridge_zigbee
+    build: ./Smart-iLAB-Python-Files
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: ["python3", "-u", "Zigbee2MQTT_to_Database.py"]
+    healthcheck:
+      test: ["CMD-SHELL", "ps -ef | grep -v grep | grep -q Zigbee2MQTT_to_Database || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  databridge-sensibo:
+    container_name: databridge_sensibo
+    build: ./Smart-iLAB-Python-Files
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: ["python3", "-u", "SensiboAirPro_to_Database.py"]
+    healthcheck:
+      test: ["CMD-SHELL", "ps -ef | grep -v grep | grep -q SensiboAirPro_to_Database || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

@@ -3,24 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://mrdoob.github.io; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' http://localhost:3000 http://localhost http://10.158.66.30 http://10.158.66.30:80; frame-ancestors 'none'; base-uri 'self'; form-action 'self';" />
     <title>Smart-iLab Project</title>
     <link rel="icon" type="image/x-icon" href="/assets/icons/SSL-Icon.png">
     <link rel="stylesheet" type="text/css" href="/src/style.css">
     <script>
     (function(){var script=document.createElement('script');script.onload=function(){var stats=new Stats();document.body.appendChild(stats.dom);requestAnimationFrame(function loop(){stats.update();requestAnimationFrame(loop)});};script.src='https://mrdoob.github.io/stats.js/build/stats.min.js';document.head.appendChild(script);})()</script>
-    <!--GSAP for smooth transitions-->
+    <!-- §7.1 — gsap and chart.js still loaded from CDN as global scripts.
+         Pinning to exact version paths reduces drift; for stronger guarantees add integrity
+         hashes (Subresource Integrity) once you've validated the pinned bundle. -->
     <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.7/dist/gsap.min.js"></script>
-    <!--Chartjs for graphical representation of data-->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script type="importmap">
-			{
-				"imports": {
-					"three": "https://cdn.jsdelivr.net/npm/three@0.172.0/build/three.module.js",
-          "jsm/": "https://cdn.jsdelivr.net/npm/three@0.172.0/examples/jsm/",
-          "chart/": "https://cdn.jsdelivr.net/npm/chart.js/"
-        }
-			}
-		</script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <!-- The browser importmap that previously routed `three` to the CDN was removed:
+         main.js now uses bare specifiers (`import 'three'`) which Vite resolves from
+         node_modules at build/dev time. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap" rel="stylesheet">

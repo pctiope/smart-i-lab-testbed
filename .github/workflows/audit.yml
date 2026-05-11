@@ -1,0 +1,65 @@
+name: audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'  # Monday 06:00 UTC
+
+jobs:
+  npm-audit-rest:
+    name: npm audit (SSL-IoT1-REST)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: SSL-IoT1-REST
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: SSL-IoT1-REST/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high --production
+
+  npm-audit-digitaltwin:
+    name: npm audit (Smart-iLab_DigitalTwin)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Smart-iLab_DigitalTwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Smart-iLab_DigitalTwin/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high --production
+
+  pip-audit:
+    name: pip-audit (Smart-iLAB-Python-Files)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Smart-iLAB-Python-Files
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pip-audit
+      - run: pip-audit --requirement requirements.txt --strict
+
+  oas-lint:
+    name: OpenAPI lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npx --yes @stoplight/spectral-cli lint SSL-IoT1-REST/oas_ssl_iot1.yaml
