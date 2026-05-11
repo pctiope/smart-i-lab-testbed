@@ -1,0 +1,167 @@
+x-zone5-env: &zone5-env
+  PYTHONUNBUFFERED: "1"
+  PYTHON_BIN: python3
+  PYTHONPATH: /app
+  YOLO_AUTOINSTALL: "False"
+  ZONE5_SKIP_DOTENV: "1"
+  SNAPSHOT_REFRESH_EVERY_HOURS: "1"
+  RETRAIN_AFTER_SNAPSHOT: "0"
+  PROMOTE_AFTER_RETRAIN: "0"
+
+x-zone5-volumes: &zone5-volumes
+  - ./data:/app/data
+  - ./model:/app/model
+  - ./logs:/app/logs
+  - ./cv_counter/masks:/app/cv_counter/masks:ro
+  - ./cv_counter/models:/app/cv_counter/models:ro
+  - ./cv_counter/trackers:/app/cv_counter/trackers:ro
+
+x-zone5-service: &zone5-service
+  build:
+    context: .
+  image: zone5-cv-time-features:latest
+  env_file:
+    - ./web_app/.env
+  init: true
+  user: "${ZONE5_UID:-1000}:${ZONE5_GID:-1000}"
+  stop_grace_period: 30s
+  volumes: *zone5-volumes
+
+services:
+  person-counter:
+    <<: *zone5-service
+    container_name: zone5-person-counter
+    command: ["bash", "run_person_counter.sh"]
+    restart: unless-stopped
+    environment:
+      <<: *zone5-env
+
+  mqtt-aggregator:
+    <<: *zone5-service
+    container_name: zone5-mqtt-aggregator
+    command: ["python", "-m", "zone5.occupancy_mqtt_aggregator"]
+    restart: unless-stopped
+    environment:
+      <<: *zone5-env
+
+  sen55-collector:
+    <<: *zone5-service
+    container_name: sen55-collector
+    command: ["bash", "run_sen55_collector.sh"]
+    restart: unless-stopped
+    environment:
+      <<: *zone5-env
+
+  live-collector:
+    <<: *zone5-service
+    container_name: zone5-live-collector
+    command: ["bash", "run_live_collector.sh"]
+    restart: unless-stopped
+    environment:
+      <<: *zone5-env
+
+  live-app:
+    <<: *zone5-service
+    container_name: zone5-live-app
+    command: ["bash", "run_live_app.sh"]
+    restart: unless-stopped
+    ports:
+      - "${ZONE5_APP_PORT:-8000}:8000"
+    environment:
+      <<: *zone5-env
+      HOST: 0.0.0.0
+      PORT: "8000"
+      ZONE5_PRODUCTION_POINTER: model/production_run.txt
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  replay-app:
+    <<: *zone5-service
+    container_name: zone5-replay-app
+    command: ["bash", "run_replay_app.sh"]
+    profiles: ["replay"]
+    ports:
+      - "${ZONE5_REPLAY_PORT:-8001}:8000"
+    environment:
+      <<: *zone5-env
+      HOST: 0.0.0.0
+      PORT: "8000"
+      ZONE5_TICK_INTERVAL_SEC: ${ZONE5_TICK_INTERVAL_SEC:-1}
+
+  trainer:
+    <<: *zone5-service
+    container_name: zone5-trainer
+    command: ["bash", "train_model.sh"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *zone5-env
+
+  promoter:
+    <<: *zone5-service
+    container_name: zone5-promoter
+    command: ["python", "-m", "zone5.promote_model"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *zone5-env
+
+  historical-collector:
+    <<: *zone5-service
+    container_name: zone5-historical-collector
+    command: ["python", "-m", "zone5.collect_training_data"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *zone5-env
+
+  csv-exporter:
+    <<: *zone5-service
+    container_name: zone5-csv-exporter
+    command: ["python", "-m", "zone5.air1_exporter"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *zone5-env
+
+  smoke-test:
+    <<: *zone5-service
+    container_name: zone5-smoke-test
+    command: ["python", "smoke_test.py"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *zone5-env
+
+  compile-check:
+    <<: *zone5-service
+    container_name: zone5-compile-check
+    command: ["python", "-m", "compileall", "zone5", "web_app", "smoke_test.py"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *zone5-env
+
+  unit-tests:
+    <<: *zone5-service
+    container_name: zone5-unit-tests
+    command: ["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test*.py", "-v"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *zone5-env
+
+  shell:
+    <<: *zone5-service
+    container_name: zone5-shell
+    command: ["bash"]
+    profiles: ["ops"]
+    restart: "no"
+    stdin_open: true
+    tty: true
+    environment:
+      <<: *zone5-env

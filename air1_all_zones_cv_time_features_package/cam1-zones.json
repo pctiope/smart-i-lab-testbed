@@ -1,0 +1,101 @@
+{
+  "_comment": "Zone config for rtsp_zone_tracker.py",
+  "_comment2": "color_bgr: [Blue, Green, Red] — must match what you paint on the mask image",
+  "_comment3": "polygon: [x, y] points in the ORIGINAL image coordinate space (e.g. 1920x1080)",
+  "_comment4": "overlap_thresh: 0.0 = center-point only (fast), 0.3 = 30% of bbox must be in zone",
+
+  "overlap_thresh": 0.3,
+
+  "zones": [
+    {
+      "name": "Table 4",
+      "color_bgr": [255, 0, 150],
+      "polygon": [
+        [100,  60],
+        [1200, 60],
+        [1200, 125],
+        [100,  125]
+      ]
+    },
+    {
+      "name": "Table 9",
+      "color_bgr": [0, 0, 255],
+      "polygon": [
+        [30,  180],
+        [480, 180],
+        [480, 780],
+        [30,  780]
+      ]
+    },
+    {
+      "name": "Table 10",
+      "color_bgr": [0, 255, 0],
+      "polygon": [
+        [490,  130],
+        [860,  130],
+        [860,  760],
+        [490,  760]
+      ]
+    },
+    {
+      "name": "Table 11",
+      "color_bgr": [255, 0, 0],
+      "polygon": [
+        [870,  100],
+        [1260, 100],
+        [1260, 760],
+        [870,  760]
+      ]
+    },
+    {
+      "name": "Table 12",
+      "color_bgr": [255, 255, 0],
+      "polygon": [
+        [100,  60],
+        [1200, 60],
+        [1200, 125],
+        [100,  125]
+      ]
+    },
+    {
+      "name": "Table 13",
+      "color_bgr": [255, 0, 255],
+      "polygon": [
+        [100,  60],
+        [1200, 60],
+        [1200, 125],
+        [100,  125]
+      ]
+    },
+    {
+      "name": "Table 14",
+      "color_bgr": [0, 255, 255],
+      "polygon": [
+        [100,  60],
+        [1200, 60],
+        [1200, 125],
+        [100,  125]
+      ]
+    },
+    {
+      "name": "Table 15",
+      "color_bgr": [0, 120, 255],
+      "polygon": [
+        [100,  60],
+        [1200, 60],
+        [1200, 125],
+        [100,  125]
+      ]
+    },
+    {
+      "name": "Table 16",
+      "color_bgr": [255, 255, 255],
+      "polygon": [
+        [100,  60],
+        [1200, 60],
+        [1200, 125],
+        [100,  125]
+      ]
+    }
+  ]
+}

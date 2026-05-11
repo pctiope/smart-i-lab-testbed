@@ -1,0 +1,23 @@
+[Unit]
+Description=AIR-1 All-Zones Trainer
+After=network-online.target air1-all-zones-live-collector.service
+Wants=air1-all-zones-live-collector.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/air1_all_zones_cv_time_features_package
+EnvironmentFile=-%h/air1_all_zones_cv_time_features_package/web_app/.env
+Environment=PYTHON_BIN=python3
+Environment=PYTHONUNBUFFERED=1
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=1
+Environment=PYTHONPATH=%h/air1_all_zones_cv_time_features_package/.python-packages:%h/air1_all_zones_cv_time_features_package
+Environment=RETRAIN_N_TRIALS=50
+Environment=RETRAIN_MAX_EPOCHS=20
+Environment=RETRAIN_OPTUNA_JOBS=1
+Environment=RETRAIN_BOOTSTRAP_FALLBACK=auto
+Environment=RETRAIN_CV_FOLDS=auto
+Environment=PROMOTE_AFTER_RETRAIN=1
+ExecStart=/usr/bin/env bash -lc 'exec bash run_air1_all_zones_trainer.sh >> logs/air1_all_zones_trainer.log 2>&1'

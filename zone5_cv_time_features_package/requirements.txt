@@ -1,0 +1,17 @@
+torch
+numpy
+pandas
+pyarrow
+scikit-learn
+optuna
+matplotlib
+requests
+fastapi
+uvicorn[standard]
+opencv-python-headless
+python-dotenv
+paho-mqtt
+ultralytics>=8.0.0
+lap>=0.5.12
+scipy
+filterpy

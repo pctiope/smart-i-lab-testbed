@@ -1,0 +1,27 @@
+# Python/runtime caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Local virtual environments and environment files
+.venv/
+venv/
+.python-packages/
+web_app/.env
+*.env
+
+# Logs and local runtime output
+logs/
+*.log
+.test_runtime/
+.tmp_*/
+.tmp_train_smoke/
+
+# Generated data tables
+data/*
+!data/README.md
+
+# Generated model runs and pointers
+model/*
+!model/README.md

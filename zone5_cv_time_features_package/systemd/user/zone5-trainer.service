@@ -1,0 +1,23 @@
+[Unit]
+Description=Zone 5 Trainer
+After=network-online.target zone5-live-collector.service
+Wants=zone5-live-collector.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/zone5_cv_time_features_package
+EnvironmentFile=-%h/zone5_cv_time_features_package/web_app/.env
+Environment=PYTHON_BIN=python3
+Environment=PYTHONUNBUFFERED=1
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=1
+Environment=PYTHONPATH=%h/zone5_cv_time_features_package/.python-packages:%h/zone5_cv_time_features_package
+Environment=RETRAIN_N_TRIALS=50
+Environment=RETRAIN_MAX_EPOCHS=20
+Environment=RETRAIN_OPTUNA_JOBS=1
+Environment=RETRAIN_BOOTSTRAP_FALLBACK=auto
+Environment=RETRAIN_CV_FOLDS=auto
+Environment=PROMOTE_AFTER_RETRAIN=1
+ExecStart=/usr/bin/env bash -lc 'exec bash run_zone5_trainer.sh >> logs/zone5_trainer.log 2>&1'

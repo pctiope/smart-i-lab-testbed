@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Zone 5 Trainer Hourly
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Persistent=true
+Unit=zone5-trainer.service
+
+[Install]
+WantedBy=timers.target

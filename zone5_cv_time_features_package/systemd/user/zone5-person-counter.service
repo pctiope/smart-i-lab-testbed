@@ -1,0 +1,17 @@
+[Unit]
+Description=Zone 5 Person Counter
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/zone5_cv_time_features_package
+EnvironmentFile=-%h/zone5_cv_time_features_package/web_app/.env
+Environment=PYTHON_BIN=python3
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=%h/zone5_cv_time_features_package/.python-packages:%h/zone5_cv_time_features_package
+ExecStart=/usr/bin/env bash -lc 'exec bash run_person_counter.sh >> logs/person_counter.log 2>&1'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

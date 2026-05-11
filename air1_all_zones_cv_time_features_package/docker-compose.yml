@@ -1,0 +1,198 @@
+x-air1_all_zones-env: &air1_all_zones-env
+  PYTHONUNBUFFERED: "1"
+  PYTHON_BIN: python3
+  PYTHONPATH: /app
+  YOLO_AUTOINSTALL: "False"
+  AIR1_ALL_ZONES_SKIP_DOTENV: "1"
+  PERSON_COUNT_MQTT_TOPIC: care_ssl/all_zones/person_count_by_zone
+  OCCUPANCY_MQTT_TOPIC: care_ssl/all_zones/person_count_by_zone
+
+x-air1_all_zones-volumes: &air1_all_zones-volumes
+  - ./data:/app/data
+  - ./model:/app/model
+  - ./logs:/app/logs
+  - ./masks:/app/masks:ro
+  - ./cam1-zones.json:/app/cam1-zones.json:ro
+  - ./cam2-zones.json:/app/cam2-zones.json:ro
+  - ./cv_counter/models:/app/cv_counter/models:ro
+  - ./cv_counter/trackers:/app/cv_counter/trackers:ro
+
+x-air1_all_zones-service: &air1_all_zones-service
+  build:
+    context: .
+  image: air1_all_zones-cv-time-features:latest
+  env_file:
+    - ./web_app/.env
+  init: true
+  user: "${AIR1_ALL_ZONES_UID:-1000}:${AIR1_ALL_ZONES_GID:-1000}"
+  stop_grace_period: 30s
+  volumes: *air1_all_zones-volumes
+
+services:
+  person-counter:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-person-counter-cam1
+    command: ["bash", "run_person_counter.sh"]
+    restart: unless-stopped
+    environment:
+      <<: *air1_all_zones-env
+      PERSON_COUNT_CAMERA_ID: cam1
+
+  person-counter-cam2:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-person-counter-cam2
+    command: ["bash", "run_person_counter.sh"]
+    restart: unless-stopped
+    environment:
+      <<: *air1_all_zones-env
+      PERSON_COUNT_CAMERA_ID: cam2
+
+  mqtt-aggregator:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-mqtt-aggregator
+    command: ["python", "-m", "air1_all_zones.occupancy_mqtt_aggregator"]
+    restart: unless-stopped
+    environment:
+      <<: *air1_all_zones-env
+
+  sen55-collector:
+    <<: *air1_all_zones-service
+    container_name: sen55-collector
+    command: ["bash", "run_sen55_collector.sh"]
+    restart: unless-stopped
+    environment:
+      <<: *air1_all_zones-env
+
+  live-collector:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-live-collector
+    command: ["bash", "run_live_collector.sh"]
+    restart: unless-stopped
+    environment:
+      <<: *air1_all_zones-env
+
+  live-app:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-live-app
+    command: ["bash", "run_live_app.sh"]
+    restart: unless-stopped
+    ports:
+      - "${AIR1_ALL_ZONES_APP_PORT:-8000}:8000"
+    environment:
+      <<: *air1_all_zones-env
+      HOST: 0.0.0.0
+      PORT: "8000"
+      AIR1_ALL_ZONES_PRODUCTION_POINTER: model/production_run.txt
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  replay-app:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-replay-app
+    command: ["bash", "run_replay_app.sh"]
+    profiles: ["replay"]
+    ports:
+      - "${AIR1_ALL_ZONES_REPLAY_PORT:-8001}:8000"
+    environment:
+      <<: *air1_all_zones-env
+      HOST: 0.0.0.0
+      PORT: "8000"
+      AIR1_ALL_ZONES_TICK_INTERVAL_SEC: ${AIR1_ALL_ZONES_TICK_INTERVAL_SEC:-1}
+
+  trainer:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-trainer
+    command: ["bash", "run_air1_all_zones_trainer.sh"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *air1_all_zones-env
+
+  promoter:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-promoter
+    command: ["python", "-m", "air1_all_zones.promote_model"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *air1_all_zones-env
+
+  cv-training-builder:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-cv-training-builder
+    command: ["python", "-m", "air1_all_zones.build_cv_training_data"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *air1_all_zones-env
+
+  historical-collector:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-historical-collector
+    command: ["python", "-m", "air1_all_zones.collect_training_data"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *air1_all_zones-env
+
+  parquet-exporter:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-parquet-exporter
+    command: ["python", "-m", "air1_all_zones.export_parquet"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *air1_all_zones-env
+
+  csv-exporter:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-csv-exporter
+    command: ["python", "-m", "air1_all_zones.air1_exporter"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *air1_all_zones-env
+
+  smoke-test:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-smoke-test
+    command: ["python", "smoke_test.py"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *air1_all_zones-env
+
+  compile-check:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-compile-check
+    command: ["python", "-m", "compileall", "air1_all_zones", "web_app", "smoke_test.py"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *air1_all_zones-env
+
+  unit-tests:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-unit-tests
+    command: ["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test*.py", "-v"]
+    profiles: ["ops"]
+    restart: "no"
+    environment:
+      <<: *air1_all_zones-env
+
+  shell:
+    <<: *air1_all_zones-service
+    container_name: air1_all_zones-shell
+    command: ["bash"]
+    profiles: ["ops"]
+    restart: "no"
+    stdin_open: true
+    tty: true
+    environment:
+      <<: *air1_all_zones-env
+
+

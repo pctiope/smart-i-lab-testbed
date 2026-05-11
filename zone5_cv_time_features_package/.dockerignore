@@ -1,0 +1,35 @@
+# Python/runtime caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Local Python environments and package installs
+.venv/
+venv/
+.python-packages/
+
+# Local environment files. Compose injects web_app/.env at runtime instead.
+.env
+*.env
+web_app/.env
+web_app/.env.*
+
+# Runtime output mounted from the host by docker-compose.yml
+logs/
+*.log
+.test_runtime/
+.tmp_*/
+.tmp_train_smoke/
+
+data/*
+!data/README.md
+
+model/*
+!model/README.md
+
+# Local Docker/editor noise
+.git/
+.gitignore
+.dockerignore
+docker-compose.override.yml

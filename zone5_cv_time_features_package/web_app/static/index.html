@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ZONE 05 // OCCUPANCY MONITOR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Anton&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+    <div class="grain" aria-hidden="true"></div>
+    <div class="boot-overlay" id="boot-overlay" aria-hidden="true">
+        <div class="boot-text">
+            <span class="boot-line">&gt; INIT SENSOR INTERFACE</span>
+            <span class="boot-line">&gt; LOADING ARTIFACTS</span>
+            <span class="boot-line">&gt; ESTABLISH YOLO VIDEO STREAM</span>
+            <span class="boot-line">&gt; OK</span>
+        </div>
+    </div>
+
+    <header class="hud-bar" data-reveal="0">
+        <div class="hud-bar__left">
+            <span class="bracket">[</span><span class="hud-mark">SIG</span><span class="bracket">]</span>
+            <span class="hud-zone">ZONE 05</span>
+            <span class="hud-divider">/</span>
+            <span class="hud-sub">OCCUPANCY · CNN-1D · LIVE</span>
+        </div>
+        <div class="hud-bar__right">
+            <span class="status-cluster">
+                <span class="status-key">MDL</span>
+                <span class="status-val" id="model-run-id">—</span>
+            </span>
+            <span class="status-cluster">
+                <span class="status-key">SRC</span>
+                <span class="status-val" id="data-source">—</span>
+            </span>
+            <span class="status-cluster">
+                <span class="status-key">YOLO</span>
+                <span class="status-dot pending" id="rtsp-status" aria-hidden="true"></span>
+                <span class="status-val mono-dim" id="rtsp-url">—</span>
+            </span>
+            <span class="status-cluster">
+                <span class="status-key">UTC</span>
+                <span class="status-val" id="utc-clock">--:--:--</span>
+            </span>
+        </div>
+    </header>
+
+    <main class="console">
+        <aside class="rail" data-reveal="1">
+            <div class="rail__stack">
+                <span class="rail__id">Z-005</span>
+                <span class="rail__legend">SURVEILLANCE / OCCUPANCY DETECTION</span>
+            </div>
+            <div class="rail__chips">
+                <div class="chip">
+                    <span class="chip__key">FPS</span>
+                    <span class="chip__val" id="rtsp-frame-age">—</span>
+                </div>
+                <div class="chip">
+                    <span class="chip__key">TICK</span>
+                    <span class="chip__val" id="last-tick-rel">—</span>
+                </div>
+                <div class="chip">
+                    <span class="chip__key">PTR</span>
+                    <span class="chip__val mono-dim" id="pointer-path">production_run.txt</span>
+                </div>
+                <div class="chip">
+                    <span class="chip__key">SAMPLES</span>
+                    <span class="chip__val" id="sample-count">0</span>
+                </div>
+            </div>
+            <div class="rail__sigil" aria-hidden="true">
+                <svg viewBox="0 0 60 120" width="100%" height="100%">
+                    <g fill="none" stroke="currentColor" stroke-width="1">
+                        <circle cx="30" cy="30" r="20"/>
+                        <circle cx="30" cy="30" r="12"/>
+                        <line x1="30" y1="6" x2="30" y2="54"/>
+                        <line x1="6" y1="30" x2="54" y2="30"/>
+                    </g>
+                    <g fill="currentColor">
+                        <text x="6" y="78" font-family="JetBrains Mono" font-size="6" letter-spacing="1">REC NO. 26.04.30</text>
+                        <text x="6" y="92" font-family="JetBrains Mono" font-size="6" letter-spacing="1">SCH AI221</text>
+                        <text x="6" y="106" font-family="JetBrains Mono" font-size="6" letter-spacing="1">REV 0.4</text>
+                    </g>
+                </svg>
+            </div>
+        </aside>
+
+        <section class="scope" data-reveal="2">
+            <div class="scope__header">
+                <span class="scope__label">[ FEED.01 ]</span>
+                <span class="scope__title">GROUND-TRUTH OPTICAL // YOLO MJPEG + MASK</span>
+                <span class="scope__mask-state" id="mask-state" data-state="pending">MASK --</span>
+                <span class="scope__rec">
+                    <span class="rec-dot" id="rec-dot" aria-hidden="true"></span>
+                    <span id="rec-status">STANDBY</span>
+                </span>
+            </div>
+            <div class="scope__frame">
+                <span class="bracket-tl" aria-hidden="true"></span>
+                <span class="bracket-tr" aria-hidden="true"></span>
+                <span class="bracket-bl" aria-hidden="true"></span>
+                <span class="bracket-br" aria-hidden="true"></span>
+                <span class="reticle" aria-hidden="true"></span>
+                <span class="scanlines" aria-hidden="true"></span>
+                <img class="scope__feed" id="rtsp-feed" src="/api/video.mjpg" alt="Live YOLO inference video">
+                <img class="scope__mask" id="mask-overlay" alt="Zone 5 ROI mask overlay" hidden>
+                <div class="scope__overlay">
+                    <span class="overlay-band">FRAME // <span id="overlay-rtsp-host">—</span></span>
+                    <span class="overlay-band overlay-band--right">CAM Z-005 // <span id="overlay-fps">--</span></span>
+                </div>
+            </div>
+        </section>
+
+        <section class="readout" data-reveal="3">
+            <div class="readout__head">
+                <span class="readout__label">[ INFER.01 ]</span>
+                <span class="readout__title">P( OCCUPIED | x )</span>
+                <span class="readout__smooth">EMA-5</span>
+                <span class="readout__threshold" id="threshold-tag" hidden>
+                    THR <span id="threshold-value">—</span>
+                </span>
+            </div>
+            <div class="readout__digits">
+                <span class="digits" id="digits">0.0000</span>
+                <span class="digits-suffix" id="digits-suffix">·</span>
+                <span class="digits-flag" id="occupied-flag" data-state="idle">IDLE</span>
+            </div>
+            <div class="truth-panel">
+                <span class="truth-panel__label">CV GROUND TRUTH</span>
+                <span class="truth-panel__count" id="ground-truth-count">--</span>
+                <span class="truth-panel__flag" id="ground-truth-flag" data-state="idle">NO LABEL</span>
+                <span class="truth-panel__meta" id="ground-truth-meta">--</span>
+            </div>
+            <div class="oscilloscope">
+                <div class="oscilloscope__plot" id="probability-plot"></div>
+                <div class="oscilloscope__axis-label">T-MINUS  ·  240 SAMPLES</div>
+            </div>
+            <div class="readout__error" id="error-band" hidden>
+                <span class="error-prefix">ERR //</span>
+                <span id="error-text"></span>
+            </div>
+        </section>
+    </main>
+
+    <footer class="ribbon" data-reveal="4">
+        <div class="ribbon__lane">
+            <span class="ribbon__key">LATEST_TS</span>
+            <span class="ribbon__val" id="latest-ts">—</span>
+        </div>
+        <div class="ribbon__lane">
+            <span class="ribbon__key">REF_TIME</span>
+            <span class="ribbon__val" id="reference-ts">—</span>
+        </div>
+        <div class="ribbon__lane">
+            <span class="ribbon__key">MAX_GAP</span>
+            <span class="ribbon__val" id="cfg-gap">—m</span>
+        </div>
+        <div class="ribbon__lane">
+            <span class="ribbon__key">MAX_AGE</span>
+            <span class="ribbon__val" id="cfg-age">—m</span>
+        </div>
+        <div class="ribbon__lane ribbon__lane--grow">
+            <span class="ribbon__key">LOG</span>
+            <span class="ribbon__val ribbon__val--ticker" id="ticker">awaiting telemetry…</span>
+        </div>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

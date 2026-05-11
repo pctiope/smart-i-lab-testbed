@@ -1,0 +1,12 @@
+[Unit]
+Description=Run AIR-1 All-Zones Trainer Hourly
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+AccuracySec=1min
+Persistent=true
+Unit=air1-all-zones-trainer.service
+
+[Install]
+WantedBy=timers.target

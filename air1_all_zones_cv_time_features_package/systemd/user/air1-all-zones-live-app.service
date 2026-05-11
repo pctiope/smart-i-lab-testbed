@@ -1,0 +1,22 @@
+[Unit]
+Description=AIR-1 All-Zones Live App
+After=network-online.target air1-all-zones-live-collector.service
+Wants=air1-all-zones-live-collector.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/air1_all_zones_cv_time_features_package
+EnvironmentFile=-%h/air1_all_zones_cv_time_features_package/web_app/.env
+Environment=HOST=127.0.0.1
+Environment=PORT=8000
+Environment=AIR1_ALL_ZONES_DATA_SOURCE=live
+Environment=AIR1_ALL_ZONES_PRODUCTION_POINTER=model/production_run.txt
+Environment=PYTHON_BIN=python3
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=%h/air1_all_zones_cv_time_features_package/.python-packages:%h/air1_all_zones_cv_time_features_package
+ExecStart=/usr/bin/env bash -lc 'exec bash run_live_app.sh >> logs/live_app.log 2>&1'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

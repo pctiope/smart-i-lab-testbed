@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AIR-1 All-Zones Occupancy Monitor</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand__mark">AIR-1</span>
+            <span class="brand__title">All-Zones Occupancy</span>
+            <span class="brand__sub">shared all-zones model output</span>
+        </div>
+        <div class="status-strip">
+            <span class="kv"><span>Model</span><b id="model-run-id">--</b></span>
+            <span class="kv"><span>Source</span><b id="data-source">--</b></span>
+            <span class="kv kv--camera">
+                <span>cam1</span>
+                <i class="status-dot pending" id="cam1-status" aria-hidden="true"></i>
+                <b id="cam1-url">10.158.71.241</b>
+            </span>
+            <span class="kv kv--camera">
+                <span>cam2</span>
+                <i class="status-dot pending" id="cam2-status" aria-hidden="true"></i>
+                <b id="cam2-url">10.158.71.240</b>
+            </span>
+            <span class="kv"><span>Local</span><b id="utc-clock">--:--:--</b></span>
+        </div>
+    </header>
+
+    <main class="workspace">
+        <section class="summary-panel">
+            <div class="panel-head">
+                <span>Top Summary</span>
+                <span id="threshold-tag" hidden>threshold <b id="threshold-value">--</b></span>
+            </div>
+            <div class="readouts">
+                <div class="readout readout--primary">
+                    <span>Max zone probability</span>
+                    <b id="digits">0.0000</b>
+                    <i id="occupied-flag" data-state="idle">idle</i>
+                </div>
+                <div class="readout">
+                    <span>Mean probability</span>
+                    <b id="aggregate-prob">0.0000</b>
+                </div>
+                <div class="readout">
+                    <span>Zones above threshold</span>
+                    <b id="active-zone-count">0 / 15</b>
+                </div>
+                <div class="readout">
+                    <span>Aggregate CV count</span>
+                    <b id="ground-truth-count">--</b>
+                    <i id="ground-truth-flag" data-state="idle">no label</i>
+                </div>
+                <div class="readout">
+                    <span>Latest tick</span>
+                    <b id="last-tick-rel">--</b>
+                    <i id="latest-ts">--</i>
+                </div>
+                <div class="readout">
+                    <span>Per-zone CV labels</span>
+                    <b id="labeled-zone-count">0 / 15</b>
+                    <i id="ground-truth-meta">--</i>
+                </div>
+            </div>
+        </section>
+
+        <section class="video-panel">
+            <div class="panel-head">
+                <span>YOLO Inference Video</span>
+                <span>cam1 tables 4, 9-15; cam2 tables 1-3, 5-8</span>
+            </div>
+            <div class="camera-grid">
+                <article class="camera-feed" data-camera="cam1">
+                    <div class="camera-feed__head">
+                        <span>cam1</span>
+                        <b>10.158.71.241</b>
+                    </div>
+                    <div class="video-frame">
+                        <img id="rtsp-feed-cam1" src="/api/video/cam1.mjpg" alt="cam1 live YOLO inference video">
+                    </div>
+                    <div class="video-meta">
+                        <span>frame age <b id="cam1-frame-age">--</b></span>
+                        <span id="cam1-stream-state">YOLO stream pending</span>
+                    </div>
+                </article>
+                <article class="camera-feed" data-camera="cam2">
+                    <div class="camera-feed__head">
+                        <span>cam2</span>
+                        <b>10.158.71.240</b>
+                    </div>
+                    <div class="video-frame">
+                        <img id="rtsp-feed-cam2" src="/api/video/cam2.mjpg" alt="cam2 live YOLO inference video">
+                    </div>
+                    <div class="video-meta">
+                        <span>frame age <b id="cam2-frame-age">--</b></span>
+                        <span id="cam2-stream-state">YOLO stream pending</span>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section class="zones-panel">
+            <div class="panel-head">
+                <span>Per-Zone Operations Grid</span>
+                <span>Table 16 excluded/unlabeled metadata only</span>
+            </div>
+            <div class="zone-layout">
+                <div class="zone-groups" id="zone-groups" aria-label="Per-zone occupancy probabilities"></div>
+                <aside class="zone-detail" aria-live="polite">
+                    <div class="zone-detail__head">
+                        <span>Zone Detail</span>
+                        <b id="detail-zone">Z01</b>
+                    </div>
+                    <dl>
+                        <dt>Camera</dt>
+                        <dd id="detail-camera">cam2</dd>
+                        <dt>Model probability</dt>
+                        <dd id="detail-probability">--</dd>
+                        <dt>Model state</dt>
+                        <dd id="detail-state">--</dd>
+                        <dt>CV count</dt>
+                        <dd id="detail-cv-count">--</dd>
+                        <dt>CV label</dt>
+                        <dd id="detail-cv-state">--</dd>
+                        <dt>Label age</dt>
+                        <dd id="detail-cv-age">--</dd>
+                        <dt>Label timestamp</dt>
+                        <dd id="detail-cv-ts">--</dd>
+                    </dl>
+                </aside>
+            </div>
+        </section>
+
+        <section class="chart-panel">
+            <div class="panel-head">
+                <span>History</span>
+                <span><b id="sample-count">0</b> samples</span>
+            </div>
+            <div id="probability-plot" class="plot"></div>
+            <div class="error-band" id="error-band" hidden>
+                <b>ERR</b>
+                <span id="error-text"></span>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer-strip">
+        <span><b>reference</b> <span id="reference-ts">--</span></span>
+        <span><b>max gap</b> <span id="cfg-gap">--</span></span>
+        <span><b>max age</b> <span id="cfg-age">--</span></span>
+        <span class="footer-strip__grow"><b>pointer</b> <span id="pointer-path">production_run.txt</span></span>
+        <span class="ticker" id="ticker">awaiting telemetry</span>
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
