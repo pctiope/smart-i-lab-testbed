@@ -1,0 +1,44 @@
+# Side-by-side overlay. Brings the new hardened REST API + Digital Twin up on
+# alternate ports so you can validate them while the existing production stack
+# at :80 keeps serving live traffic.
+#
+# Reads / writes the SAME external Postgres + EMQX as the running stack
+# (via .env). Inserts to `transactions` happen as your test calls hit auth;
+# no schema changes.
+#
+# Usage from the lab server (VM 120 @ 10.158.66.30):
+#
+#     # bring up only the new webapp + web (subscribers stay off)
+#     docker compose -f compose.yaml -f compose.sidebyside.yaml up -d --build webapp web
+#
+#     # smoke test the parallel API
+#     curl -i http://10.158.66.30:81/healthz                       # expect 200
+#     curl -i http://10.158.66.30:81/air-1 -H "x-api-key: <key>"   # expect 200 + JSON
+#
+#     # browse the parallel Digital Twin
+#     # http://10.158.66.30:5501/
+#
+#     # tear it down (production stack at :80 is untouched)
+#     docker compose -f compose.yaml -f compose.sidebyside.yaml down
+#
+# WARNING: do NOT add the databridge-* services to the `up` command above.
+# They would consume MQTT alongside the existing production subscribers and
+# cause duplicate inserts into the per-device tables.
+#
+# Cutover (when you're satisfied):
+#   1. Stop the side-by-side stack: docker compose -f ... down
+#   2. Stop the running production stack: docker compose down (in the prod dir)
+#   3. Start the hardened stack the normal way: docker compose up -d --build
+#      That replaces :80 cleanly. Subscribers come up as the three new
+#      databridge-* containers replacing the old `backend` container.
+
+services:
+  webapp:
+    container_name: rest_api_sidebyside
+    ports:
+      - "81:3000"
+
+  web:
+    container_name: digital_twin_sidebyside
+    ports:
+      - "5501:80"
