@@ -9,7 +9,7 @@ cam2 RTSP -> rtsp_zone_tracker.py -> care_ssl/all_zones/person_count_by_zone
 per-zone MQTT -> air1_all_zones.occupancy_mqtt_aggregator -> cv_occupancy_all_air1_10sec.*
 SEN55 MQTT -> air1_all_zones.sen55_mqtt_collector -> sen55_data.*
 AIR-1 API + SEN55 + per-zone CV labels -> collect_training_data -> air1_all_zones_training_cv.*
-optional retraining + promotion -> model/production_run.txt
+air1-all-zones-trainer.timer -> retraining + promotion -> model/production_run.txt
 FastAPI app -> cam1/cam2 feeds + shared model probabilities + per-zone CV labels for zones 1-15
 ```
 
@@ -48,9 +48,10 @@ PROMOTE_AFTER_RETRAIN=0
 The live collector collects CSV rows and rebuilds
 `data/air1_all_zones_training_cv.parquet` by default. Set
 `RETRAIN_AFTER_PARQUET=1` only for explicit inline retraining. The default
-systemd training path is the separate `air1-all-zones-trainer.service` and
-optional `air1-all-zones-trainer.timer`; enabling the timer is an operator
-action, not a deployment side effect.
+systemd training path is the separate `air1-all-zones-trainer.service` run by
+`air1-all-zones-trainer.timer`. After the training CSV has viable labeled data,
+keep that timer enabled as part of normal persistent server operation. Disable
+it only during maintenance or while another full training run is already active.
 
 Enable lingering so user services continue after SSH disconnects:
 
@@ -69,6 +70,21 @@ sudo loginctl enable-linger "$USER"
 Repo-local templates live under `systemd/user/`. Copy them into
 `~/.config/systemd/user/`, or use the inline examples below. Replace the
 `WorkingDirectory` path if your package lives elsewhere.
+
+```bash
+install -m 0644 systemd/user/air1-all-zones-*.service systemd/user/air1-all-zones-*.timer ~/.config/systemd/user/
+```
+
+The installed unit set should include:
+
+- `air1-all-zones-person-counter-cam1.service`
+- `air1-all-zones-person-counter-cam2.service`
+- `air1-all-zones-mqtt-aggregator.service`
+- `air1-all-zones-sen55-collector.service`
+- `air1-all-zones-live-collector.service`
+- `air1-all-zones-live-app.service`
+- `air1-all-zones-trainer.service`
+- `air1-all-zones-trainer.timer`
 
 `air1-all-zones-person-counter-cam1.service`:
 
@@ -208,33 +224,32 @@ systemctl --user enable --now air1-all-zones-live-collector.service
 systemctl --user enable --now air1-all-zones-live-app.service
 ```
 
-Run a one-off non-promoting trainer smoke pass:
-
-```bash
-systemctl --user start air1-all-zones-trainer.service
-journalctl --user -u air1-all-zones-trainer.service -n 100 --no-pager
-```
-
-For a faster dry run, invoke the launcher directly:
-
-```bash
-RETRAIN_N_TRIALS=1 RETRAIN_MAX_EPOCHS=1 PROMOTE_AFTER_RETRAIN=0 bash run_air1_all_zones_trainer.sh
-```
-
-Enable the scheduled trainer only after the live collector is producing stable
-CSV/Parquet data:
+When the training CSV has enough labeled data and no other full trainer is
+running, enable the scheduled trainer:
 
 ```bash
 systemctl --user enable --now air1-all-zones-trainer.timer
+```
+
+Use a one-off non-promoting trainer smoke pass only when you need an explicit
+manual dry run:
+
+```bash
+RETRAIN_N_TRIALS=1 RETRAIN_MAX_EPOCHS=1 PROMOTE_AFTER_RETRAIN=0 bash run_air1_all_zones_trainer.sh
 ```
 
 ## Checks
 
 ```bash
 systemctl --user status air1-all-zones-live-app.service
+systemctl --user status air1-all-zones-live-collector.service
+systemctl --user status air1-all-zones-trainer.timer
+systemctl --user status air1-all-zones-trainer.service
 journalctl --user -u air1-all-zones-live-collector.service -f
+tail -n 100 logs/air1_all_zones_trainer.log
 curl -fsS http://127.0.0.1:8000/api/health
 ls -lh data/cv_occupancy_all_air1_10sec.csv data/air1_all_zones_training_cv.parquet
+ls -lah model/runs model/current_run.txt model/production_run.txt model/retrain_status.json
 ```
 
 The app may be healthy while reporting `production pointer missing`. That is
