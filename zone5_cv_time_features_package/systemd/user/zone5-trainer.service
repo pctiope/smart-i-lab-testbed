@@ -5,15 +5,15 @@ Wants=zone5-live-collector.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/zone5_cv_time_features_package
-EnvironmentFile=-%h/zone5_cv_time_features_package/web_app/.env
+WorkingDirectory=%h/smart-i-lab-testbed/zone5_cv_time_features_package
+EnvironmentFile=-%h/smart-i-lab-testbed/zone5_cv_time_features_package/web_app/.env
 Environment=PYTHON_BIN=python3
 Environment=PYTHONUNBUFFERED=1
 Environment=OMP_NUM_THREADS=1
 Environment=MKL_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=NUMEXPR_NUM_THREADS=1
-Environment=PYTHONPATH=%h/zone5_cv_time_features_package/.python-packages:%h/zone5_cv_time_features_package
+Environment=PYTHONPATH=%h/smart-i-lab-testbed/zone5_cv_time_features_package/.python-packages:%h/smart-i-lab-testbed/zone5_cv_time_features_package
 Environment=RETRAIN_N_TRIALS=50
 Environment=RETRAIN_MAX_EPOCHS=20
 Environment=RETRAIN_OPTUNA_JOBS=1
