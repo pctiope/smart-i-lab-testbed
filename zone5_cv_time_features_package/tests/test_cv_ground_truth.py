@@ -15,6 +15,7 @@ from unittest import mock
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 
@@ -1701,6 +1702,27 @@ class PackageAuditTests(unittest.TestCase):
 
         self.assertIsNone(client)
         self.assertIn("continuing without MQTT publishing", output.getvalue())
+
+    def test_person_counter_mask_visualization_keeps_background_live(self) -> None:
+        package_root = Path(__file__).resolve().parents[1]
+        module_path = package_root / "cv_counter" / "rtsp_person_mask_tracker_new.py"
+        spec = importlib.util.spec_from_file_location("rtsp_person_mask_tracker_new_test", module_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        person_counter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(person_counter)
+
+        mask = np.zeros((3, 3), dtype=np.uint8)
+        mask[1, 1] = 255
+        first_frame = np.full((3, 3, 3), 40, dtype=np.uint8)
+        second_frame = np.full((3, 3, 3), 200, dtype=np.uint8)
+
+        first_overlay = person_counter.make_dim_overlay(first_frame, mask, alpha=0.5)
+        second_overlay = person_counter.make_dim_overlay(second_frame, mask, alpha=0.5)
+
+        self.assertEqual(int(first_overlay[0, 0, 0]), 20)
+        self.assertEqual(int(second_overlay[0, 0, 0]), 100)
+        self.assertTrue(np.array_equal(second_overlay[1, 1], second_frame[1, 1]))
 
     def test_static_dashboard_labels_are_zone5(self) -> None:
         package_root = Path(__file__).resolve().parents[1]

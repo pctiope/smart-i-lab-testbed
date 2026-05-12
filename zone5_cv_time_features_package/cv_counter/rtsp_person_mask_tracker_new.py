@@ -10,7 +10,7 @@ Fixes over old version:
 - source= correctly passes the frame variable, not a string literal
 - Removed redundant SimpleIoUTracker — YOLO's built-in tracker IDs are used directly
 - Removed batch=32 on single-frame inference
-- Mask visualization uses a pre-computed darkened background (computed once, not per frame)
+- Mask visualization dims the live frame, so background outside the mask keeps updating
 - model.to(device) replaced with passing device= directly in track() call
 - FPS counter uses a rolling window for more accurate real-time reporting
 
@@ -290,9 +290,8 @@ def mask_roi_bounds(mask: np.ndarray | None, margin: int, frame_hw: tuple[int, i
 def make_dim_overlay(frame: np.ndarray, mask: np.ndarray,
                      alpha: float = 0.65) -> np.ndarray:
     """
-    Pre-compute a darkened version of the first frame for mask visualization.
+    Build a darkened mask visualization from the current frame.
     Outside-mask pixels are dimmed; inside-mask pixels are kept bright.
-    This is blended with each new frame cheaply.
     """
     dark = (frame * (1.0 - alpha)).astype(np.uint8)
     overlay = dark.copy()
@@ -382,9 +381,6 @@ def main():
         counts_file.flush()
         print(f"Writing count CSV to: {counts_path}")
 
-    # Pre-compute mask dim overlay (done once on first frame)
-    dim_overlay = None  # initialized after first frame read
-
     # Rolling FPS window
     fps_window = deque(maxlen=30)
     last_time  = time.perf_counter()
@@ -457,7 +453,6 @@ def main():
                                     (width, height),
                                 )
                         fps_src = new_fps
-                        dim_overlay = None
                         consecutive_read_failures = 0
                         reconnect_delay = reconnect_delay_initial
                         print(f"Reconnected to live source: {width}x{height} @ {fps_src:.1f} fps")
@@ -472,10 +467,6 @@ def main():
             consecutive_read_failures = 0
             reconnect_delay = reconnect_delay_initial
             frame_idx += 1
-
-            # ── Build dim overlay once from the very first frame ──────────────
-            if args.show_mask and mask is not None and dim_overlay is None:
-                dim_overlay = make_dim_overlay(frame, mask, alpha=0.65)
 
             # ── YOLO tracking ────────────────────────────────────────────────
             inference_frame = frame
@@ -514,12 +505,10 @@ def main():
             # ── Post-detection mask filtering ─────────────────────────────────
             vis_frame = frame.copy()
 
-            # Apply dim overlay if requested (cheap blend using pre-computed overlay)
-            if dim_overlay is not None:
-                # Update dim overlay's inside-mask region with current frame pixels
-                # so the active zone always shows the live feed
-                dim_overlay[mask > 0] = frame[mask > 0]
-                vis_frame = dim_overlay.copy()
+            # Apply mask visualization from the live frame so the non-ROI
+            # background remains current instead of freezing at the first frame.
+            if args.show_mask and mask is not None:
+                vis_frame = make_dim_overlay(frame, mask, alpha=0.65)
 
             r = results[0]
             person_count = 0
