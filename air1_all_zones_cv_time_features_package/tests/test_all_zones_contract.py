@@ -235,6 +235,33 @@ class AllZonesOccupancyAggregatorTests(unittest.TestCase):
 
 
 class RtspZoneTrackerTests(unittest.TestCase):
+    def test_mqtt_connection_refusal_keeps_tracker_running_without_publishing(self) -> None:
+        class RefusingClient:
+            def username_pw_set(self, *_args) -> None:
+                pass
+
+            def reconnect_delay_set(self, *, min_delay: int, max_delay: int) -> None:
+                self.reconnect_delays = (min_delay, max_delay)
+
+            def connect(self, *_args, **_kwargs) -> None:
+                raise OSError("connection refused")
+
+        args = argparse.Namespace(
+            mqtt_broker="10.158.71.19",
+            mqtt_port=1883,
+            mqtt_client_id="care_ssl_all_zones_person_counter",
+            mqtt_username="guest",
+            mqtt_password="smartilab123",
+        )
+
+        with mock.patch.object(rtsp_zone_tracker, "create_mqtt_client", return_value=RefusingClient()):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                client = rtsp_zone_tracker.connect_mqtt(args)
+
+        self.assertIsNone(client)
+        self.assertIn("continuing without MQTT publishing", output.getvalue())
+
     def test_table_name_mapping_rejects_invalid_labels_and_excludes_table_16(self) -> None:
         self.assertEqual(rtsp_zone_tracker.table_name_to_zone_id("Table 4"), 4)
         self.assertEqual(rtsp_zone_tracker.table_name_to_zone_id("Table 16"), 16)
@@ -734,6 +761,28 @@ class AllZonesWebAndPackageAuditTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"AIR1_ALL_ZONES_MJPEG_TARGET_FPS": "0"}, clear=True):
             self.assertEqual(web_main._build_mjpeg_target_fps(), 1.0)
 
+    def test_live_air1_data_source_defers_api_roster_until_window_fetch(self) -> None:
+        from air1_all_zones import export_parquet
+        from web_app import data_source as web_data_source
+
+        class RefusingAir1Device:
+            def __init__(self, *_args, **_kwargs) -> None:
+                pass
+
+            def get_all_devices(self):
+                raise RuntimeError("AIR-1 API unavailable")
+
+        with mock.patch.object(export_parquet.csv_training, "Air1Device", RefusingAir1Device):
+            source = web_data_source.LiveAir1DataSource(
+                api_url="http://air1.example.test",
+                api_key="test-key",
+                api_timeout=0.1,
+            )
+
+        self.assertIsNone(source._source_devices)
+        with self.assertRaisesRegex(RuntimeError, "AIR-1 API unavailable"):
+            source.get_latest_window(lookback=1)
+
     def test_health_and_video_routes_are_camera_scoped(self) -> None:
         class DummyGrabber:
             def __init__(self, name: str) -> None:
@@ -751,9 +800,14 @@ class AllZonesWebAndPackageAuditTests(unittest.TestCase):
                 yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + marker + b"\r\n"
 
         async def first_chunk(response):
-            async for chunk in response.body_iterator:
-                return chunk
-            return b""
+            try:
+                async for chunk in response.body_iterator:
+                    return chunk
+                return b""
+            finally:
+                close = getattr(response.body_iterator, "aclose", None)
+                if close is not None:
+                    await close()
 
         grabbers = {"cam1": DummyGrabber("cam1"), "cam2": DummyGrabber("cam2")}
         request = SimpleNamespace(
@@ -787,16 +841,20 @@ class AllZonesWebAndPackageAuditTests(unittest.TestCase):
         self.assertEqual(payload["rtsp_by_camera"]["cam2"]["coverage_zones"], [1, 2, 3, 5, 6, 7, 8])
         self.assertEqual(payload["config"]["mjpeg_target_fps"], 22.5)
 
-        cam2_response = asyncio.run(web_main.video_by_camera(request, "cam2"))
-        self.assertIn(b"cam2-jpeg", asyncio.run(first_chunk(cam2_response)))
-        self.assertEqual(grabbers["cam2"].calls, 1)
-        self.assertEqual(grabbers["cam2"].target_fps_values, [22.5])
-        self.assertEqual(grabbers["cam1"].calls, 0)
+        async def run_inline(func, *args, **kwargs):
+            return func(*args, **kwargs)
 
-        legacy_response = asyncio.run(web_main.video(request))
-        self.assertIn(b"cam1-jpeg", asyncio.run(first_chunk(legacy_response)))
-        self.assertEqual(grabbers["cam1"].calls, 1)
-        self.assertEqual(grabbers["cam1"].target_fps_values, [22.5])
+        with mock.patch.object(web_main.asyncio, "to_thread", new=run_inline):
+            cam2_response = asyncio.run(web_main.video_by_camera(request, "cam2"))
+            self.assertIn(b"cam2-jpeg", asyncio.run(first_chunk(cam2_response)))
+            self.assertEqual(grabbers["cam2"].calls, 1)
+            self.assertEqual(grabbers["cam2"].target_fps_values, [22.5])
+            self.assertEqual(grabbers["cam1"].calls, 0)
+
+            legacy_response = asyncio.run(web_main.video(request))
+            self.assertIn(b"cam1-jpeg", asyncio.run(first_chunk(legacy_response)))
+            self.assertEqual(grabbers["cam1"].calls, 1)
+            self.assertEqual(grabbers["cam1"].target_fps_values, [22.5])
         with self.assertRaises(HTTPException) as raised:
             asyncio.run(web_main.video_by_camera(request, "cam3"))
         self.assertEqual(raised.exception.status_code, 404)

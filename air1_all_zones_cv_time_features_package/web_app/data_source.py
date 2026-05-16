@@ -232,7 +232,8 @@ class LiveAir1DataSource:
         self.sen55_csv = Path(sen55_csv) if sen55_csv is not None else _default_sen55_csv()
         self._source_devices: dict[str, list[str]] | None = None
         self._cache: _RollingCache | None = None
-        self._refresh_device_roster()
+        # Defer the AIR-1 API roster lookup so a temporary API outage cannot
+        # prevent the dashboard and YOLO video routes from starting.
 
     @property
     def label(self) -> str:

@@ -506,8 +506,11 @@ def connect_mqtt(args):
     try:
         client.connect(args.mqtt_broker, args.mqtt_port, keepalive=60)
     except OSError as e:
-        print(f"Could not connect to MQTT broker {args.mqtt_broker}:{args.mqtt_port}: {e}")
-        sys.exit(1)
+        print(
+            f"Could not connect to MQTT broker {args.mqtt_broker}:{args.mqtt_port}: {e}; "
+            "continuing without MQTT publishing"
+        )
+        return None
     client.loop_start()
     return client
 
