@@ -27,14 +27,38 @@ RAW_FEATURE_COLUMNS = [
     "sen55_voc",
     "sen55_nox",
 ]
+AIR1_ZONE_5_FEATURE_COLUMNS = ["temp_s5", "rh_s5", "co2_s5", "pm25_s5"]
+POWER_FEATURE_COLUMNS = ["power_s5"]
+MMWAVE_FEATURE_COLUMNS = ["mmwave_s5"]
+SEN55_FEATURE_COLUMNS = [
+    "sen55_pm1_0",
+    "sen55_pm2_5",
+    "sen55_pm4_0",
+    "sen55_pm10_0",
+    "sen55_temperature",
+    "sen55_humidity",
+    "sen55_voc",
+    "sen55_nox",
+]
+CORE_FEATURE_COLUMNS = [
+    *AIR1_ZONE_5_FEATURE_COLUMNS,
+    *POWER_FEATURE_COLUMNS,
+    *MMWAVE_FEATURE_COLUMNS,
+]
+CORE_FEATURE_MIN_PRESENT_FRACTIONS = {
+    **{col: 0.80 for col in AIR1_ZONE_5_FEATURE_COLUMNS},
+    "power_s5": 0.80,
+    "mmwave_s5": 0.95,
+}
 MISSING_INDICATOR_COLUMNS = [f"{col}_missing" for col in RAW_FEATURE_COLUMNS]
 TIME_FEATURE_COLUMNS = ["hour_sin", "hour_cos", "dow_sin", "dow_cos"]
-FEATURE_COLUMNS = [*RAW_FEATURE_COLUMNS, *MISSING_INDICATOR_COLUMNS, *TIME_FEATURE_COLUMNS]
+FEATURE_COLUMNS = [*RAW_FEATURE_COLUMNS, *TIME_FEATURE_COLUMNS]
 TARGET_COLUMN = "zone_occupied"
 LEGACY_TARGET_COLUMNS = ["cv_is_occupied", "is_occupied"]
 TIMESTAMP_COLUMN = "timestamp"
 ZONE_NUM = 5
 INPUT_CHANNEL_COUNT = len(FEATURE_COLUMNS)
+MODEL_CONTRACT_VERSION = "zone5_missingness_decoupled_v1"
 SAMPLE_INTERVAL_SECONDS = 10
 SAMPLE_INTERVAL = timedelta(seconds=SAMPLE_INTERVAL_SECONDS)
 SAMPLE_INTERVAL_PANDAS_FREQ = f"{SAMPLE_INTERVAL_SECONDS}s"

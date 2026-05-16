@@ -63,6 +63,7 @@ class TickEvent:
     ground_truth_occupied: bool | None = None
     ground_truth_timestamp: str | None = None
     ground_truth_age_minutes: float | int | None = None
+    warning: str | None = None
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -77,6 +78,7 @@ class TickEvent:
             "ground_truth_occupied": self.ground_truth_occupied,
             "ground_truth_timestamp": self.ground_truth_timestamp,
             "ground_truth_age_minutes": _json_safe_float(self.ground_truth_age_minutes),
+            "warning": self.warning,
             "error": self.error,
         }
 
@@ -131,6 +133,7 @@ class InferenceLoop:
         self._stop_event = asyncio.Event()
         self._last_pointer_check: float = 0.0
         self._last_error: str | None = None
+        self._last_warning: str | None = None
 
     async def subscribe(self) -> asyncio.Queue[TickEvent]:
         queue: asyncio.Queue[TickEvent] = asyncio.Queue(maxsize=64)
@@ -212,27 +215,32 @@ class InferenceLoop:
         self.state = new_state
         self._last_error = None
 
-    def _predict_blocking(self) -> tuple[pd.DataFrame, pd.Timestamp, float]:
+    def _predict_blocking(self) -> tuple[pd.DataFrame, pd.Timestamp, float, list[str]]:
         if self.state.run_dir is None or self.state.lookback is None:
             raise RuntimeError("no model loaded yet")
         window, latest_ts = self.data_source.get_latest_window(self.state.lookback)
-        probability = training.predict_zone_5_probability(
+        prediction = training.predict_zone_5_probability(
             window,
             artifact_dir=self.state.run_dir,
             reference_time=latest_ts,
             max_gap_minutes=self.config.max_gap_minutes,
             max_age_minutes=self.config.max_age_minutes,
+            return_diagnostics=True,
         )
-        return window, latest_ts, float(probability)
+        probability, diagnostics = prediction
+        warnings = list((diagnostics or {}).get("warnings") or [])
+        return window, latest_ts, float(probability), warnings
 
     async def _tick_once(self) -> None:
         if self.state.run_dir is None:
             return
         try:
-            _window, latest_ts, probability = await asyncio.to_thread(self._predict_blocking)
+            _window, latest_ts, probability, warnings = await asyncio.to_thread(self._predict_blocking)
         except Exception as exc:
-            error_text = f"{type(exc).__name__}: {exc}"
+            message = str(exc)
+            error_text = message if message.startswith("LIVE DATA DEGRADED") else f"{type(exc).__name__}: {message}"
             self._last_error = error_text
+            self._last_warning = None
             event = TickEvent(
                 timestamp=pd.Timestamp.now(tz=None).isoformat(),
                 probability=float("nan"),
@@ -241,6 +249,7 @@ class InferenceLoop:
                 reference_time="",
                 source_label=self.data_source.label,
                 **self._ground_truth_fields(pd.Timestamp.now(tz=None)),
+                warning=None,
                 error=error_text,
             )
             self.history.append(event)
@@ -259,11 +268,13 @@ class InferenceLoop:
             reference_time=pd.Timestamp(latest_ts).isoformat(),
             source_label=self.data_source.label,
             **ground_truth_fields,
+            warning="; ".join(warnings) if warnings else None,
             error=None,
         )
         self.history.append(event)
         await self._broadcast(event)
         self._last_error = None
+        self._last_warning = event.warning
 
     async def run(self) -> None:
         while not self._stop_event.is_set():
@@ -305,6 +316,7 @@ class InferenceLoop:
             "subscribers": len(self._subscribers),
             "last_event": latest,
             "last_error": self._last_error,
+            "last_warning": self._last_warning,
             "data_source": self.data_source.label,
             "ground_truth_source": self.ground_truth_source.status() if self.ground_truth_source else None,
         }

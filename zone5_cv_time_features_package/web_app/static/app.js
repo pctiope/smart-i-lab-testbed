@@ -19,6 +19,7 @@ const THRESHOLD_TAG  = document.getElementById("threshold-tag");
 const THRESHOLD_VAL  = document.getElementById("threshold-value");
 const ERROR_BAND     = document.getElementById("error-band");
 const ERROR_TEXT     = document.getElementById("error-text");
+const ERROR_PREFIX   = document.querySelector(".error-prefix");
 const LATEST_TS      = document.getElementById("latest-ts");
 const REFERENCE_TS   = document.getElementById("reference-ts");
 const CFG_GAP        = document.getElementById("cfg-gap");
@@ -221,8 +222,9 @@ function setGroundTruth(event) {
     GT_META.title = ts;
 }
 
-function showError(text) {
+function showError(text, prefix = "ERR //") {
     if (text) {
+        if (ERROR_PREFIX) ERROR_PREFIX.textContent = prefix;
         ERROR_TEXT.textContent = text;
         ERROR_BAND.hidden = false;
     } else {
@@ -267,6 +269,8 @@ async function refreshHealth() {
             DATA_SOURCE.textContent = inf.data_source || "—";
             if (inf.last_error) {
                 showError(inf.last_error);
+            } else if (inf.last_warning) {
+                showError(inf.last_warning, "WARN //");
             } else if (!inf.last_event || !inf.last_event.error) {
                 showError(null);
             }
@@ -362,7 +366,11 @@ function appendEventToPlot(event) {
     if (timestampMs !== null && latestPlottedTimestampMs !== null && timestampMs <= latestPlottedTimestampMs) {
         return;
     }
-    showError(null);
+    if (event.warning) {
+        showError(event.warning, "WARN //");
+    } else {
+        showError(null);
+    }
     const displayedProbability = smoothProbability(event.probability);
     if (!Number.isFinite(displayedProbability)) {
         showError("non-finite smoothed probability");

@@ -11,6 +11,7 @@ from sklearn.metrics import average_precision_score, brier_score_loss, log_loss,
 
 from zone5 import csv_size_guard
 from zone5.feature_contract import (
+    CORE_FEATURE_MIN_PRESENT_FRACTIONS,
     FEATURE_COLUMNS,
     INPUT_CHANNEL_COUNT,
     LEGACY_TARGET_COLUMNS,
@@ -20,6 +21,7 @@ from zone5.feature_contract import (
     RAW_FEATURE_COLUMNS,
     SAMPLE_INTERVAL_SECONDS,
     SAMPLE_INTERVAL_PANDAS_FREQ,
+    SEN55_FEATURE_COLUMNS,
     TARGET_COLUMN,
     TIME_FEATURE_COLUMNS,
     TIMESTAMP_COLUMN,
@@ -159,6 +161,73 @@ def _coerce_missing_indicators(frame: pd.DataFrame) -> pd.DataFrame:
         prepared.loc[missing, col] = np.nan
         prepared[indicator_col] = missing.astype(int)
     return prepared
+
+
+def _feature_present_values(frame: pd.DataFrame, feature_col: str) -> pd.Series:
+    indicator_col = f"{feature_col}_missing"
+    if indicator_col in frame.columns:
+        missing = pd.to_numeric(frame[indicator_col], errors="coerce").fillna(1.0)
+        return (1.0 - missing.clip(0.0, 1.0)).astype(float)
+    if feature_col in frame.columns:
+        return pd.to_numeric(frame[feature_col], errors="coerce").notna().astype(float)
+    return pd.Series(np.zeros(len(frame), dtype=float), index=frame.index)
+
+
+def feature_present_fraction(frame: pd.DataFrame, feature_col: str) -> float:
+    if frame.empty:
+        return 0.0
+    present = _feature_present_values(frame, feature_col)
+    return float(present.mean()) if len(present) else 0.0
+
+
+def live_feature_quality_diagnostics(frame: pd.DataFrame, lookback: int) -> dict[str, Any]:
+    prepared = _coerce_missing_indicators(frame)
+    recent = prepared.tail(int(lookback)).copy()
+    core_present_fractions = {
+        col: feature_present_fraction(recent, col)
+        for col in CORE_FEATURE_MIN_PRESENT_FRACTIONS
+    }
+    core_failures = [
+        {
+            "feature": col,
+            "present_fraction": float(core_present_fractions[col]),
+            "required_fraction": float(required),
+        }
+        for col, required in CORE_FEATURE_MIN_PRESENT_FRACTIONS.items()
+        if core_present_fractions[col] < float(required)
+    ]
+    sen55_present_fractions = {
+        col: feature_present_fraction(recent, col)
+        for col in SEN55_FEATURE_COLUMNS
+    }
+    warnings: list[str] = []
+    if sen55_present_fractions:
+        max_sen55_present = max(sen55_present_fractions.values())
+        min_sen55_present = min(sen55_present_fractions.values())
+        if max_sen55_present <= 0.0:
+            warnings.append("SEN55 unavailable; using neutral fill")
+        elif min_sen55_present < 1.0:
+            warnings.append("SEN55 partially unavailable; using neutral fill")
+    return {
+        "core_present_fractions": core_present_fractions,
+        "core_failures": core_failures,
+        "sen55_present_fractions": sen55_present_fractions,
+        "warnings": warnings,
+    }
+
+
+def _window_core_quality_mask(frame: pd.DataFrame, lookback: int) -> np.ndarray:
+    lookback = int(lookback)
+    if len(frame) < lookback:
+        return np.empty((0,), dtype=bool)
+    prepared = _coerce_missing_indicators(frame)
+    n_windows = len(prepared) - lookback + 1
+    mask = np.ones(n_windows, dtype=bool)
+    for col, required_fraction in CORE_FEATURE_MIN_PRESENT_FRACTIONS.items():
+        present = _feature_present_values(prepared, col).to_numpy(dtype=np.float32)
+        window_present = np.lib.stride_tricks.sliding_window_view(present, window_shape=lookback)
+        mask &= window_present.mean(axis=1) >= float(required_fraction)
+    return mask
 
 
 def _clean_zone_5_training_frame(raw: pd.DataFrame, source_label: str) -> pd.DataFrame:
@@ -604,7 +673,14 @@ def prepare_and_standardize_splits(
         for name, split in splits.items()
     }
     stats = scaler_from_train(prepared_splits["train"])
-    return {name: apply_scaler(split, stats) for name, split in prepared_splits.items()}, stats, fill_values
+    neutral_values = {
+        col: (float(fill_values.get(col, 0.0)) - stats[col]["mean"]) / stats[col]["std"]
+        for col in RAW_FEATURE_COLUMNS
+    }
+    scaled_splits = {name: apply_scaler(split, stats) for name, split in prepared_splits.items()}
+    for split in scaled_splits.values():
+        split.attrs["feature_neutral_values"] = neutral_values
+    return scaled_splits, stats, fill_values
 
 
 def standardize_splits(
@@ -619,12 +695,21 @@ def valid_lookback_candidates(splits: dict[str, pd.DataFrame]) -> list[int]:
     return [lookback for lookback in LOOKBACK_CHOICES if lookback <= max_fit]
 
 
-def _window_labels_for_lookback(frame: pd.DataFrame, lookback: int) -> np.ndarray:
+def _window_labels_for_lookback(
+    frame: pd.DataFrame,
+    lookback: int,
+    require_core_quality: bool = True,
+) -> np.ndarray:
     labels = frame[TARGET_COLUMN].to_numpy(dtype=np.float32)
     if len(labels) < lookback:
         return np.empty((0,), dtype=np.float32)
     window_labels = labels[lookback - 1 :].astype(np.float32, copy=False)
-    return window_labels[~np.isnan(window_labels)]
+    valid_mask = ~np.isnan(window_labels)
+    if require_core_quality:
+        quality_mask = _window_core_quality_mask(frame, lookback)
+        if quality_mask.size:
+            valid_mask &= quality_mask
+    return window_labels[valid_mask]
 
 
 def viable_lookback_candidates(
@@ -664,10 +749,13 @@ def make_windows(frame: pd.DataFrame, lookback: int) -> tuple[np.ndarray, np.nda
     X = np.lib.stride_tricks.sliding_window_view(values, window_shape=lookback, axis=0)
     X = np.ascontiguousarray(X, dtype=np.float32)
     y_all = labels[lookback - 1 :].astype(np.float32, copy=False)
-    labeled_mask = ~np.isnan(y_all)
-    X = X[labeled_mask]
-    y = y_all[labeled_mask]
-    ts = timestamps.iloc[lookback - 1 :].reset_index(drop=True).iloc[labeled_mask].reset_index(drop=True)
+    valid_mask = ~np.isnan(y_all)
+    quality_mask = _window_core_quality_mask(frame, lookback)
+    if quality_mask.size:
+        valid_mask &= quality_mask
+    X = X[valid_mask]
+    y = y_all[valid_mask]
+    ts = timestamps.iloc[lookback - 1 :].reset_index(drop=True).iloc[valid_mask].reset_index(drop=True)
     return X, y, ts
 
 
@@ -680,6 +768,11 @@ def build_split_windows(
             "X": X_split,
             "y": y_split,
             "timestamps": ts_split,
+            "sen55_neutral_values": [
+                float(split_df.attrs.get("feature_neutral_values", {}).get(col, 0.0))
+                for col in SEN55_FEATURE_COLUMNS
+                if col in FEATURE_COLUMNS
+            ],
         }
         for split_name, split_df in scaled_splits.items()
         for X_split, y_split, ts_split in [make_windows(split_df, lookback)]
@@ -759,7 +852,7 @@ def blind_test_evidence_by_lookback(
 ) -> dict[str, Any]:
     positive_windows_by_lookback: dict[int, int] = {}
     for lookback in lookback_candidates:
-        labels = _window_labels_for_lookback(test_frame, int(lookback))
+        labels = _window_labels_for_lookback(test_frame, int(lookback), require_core_quality=False)
         positive_windows_by_lookback[int(lookback)] = int(labels.astype(int).sum())
     evidence = label_evidence_counts(test_frame)
     evidence.update(
