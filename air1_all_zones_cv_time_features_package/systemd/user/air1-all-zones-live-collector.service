@@ -4,8 +4,8 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/air1_all_zones_cv_time_features_package
-EnvironmentFile=-%h/air1_all_zones_cv_time_features_package/web_app/.env
+WorkingDirectory=%h/smart-i-lab-testbed/air1_all_zones_cv_time_features_package
+EnvironmentFile=-%h/smart-i-lab-testbed/air1_all_zones_cv_time_features_package/web_app/.env
 Environment=DURATION_MIN=1440
 Environment=APPEND_EVERY_SEC=10
 Environment=BACKFILL_SEC=120
@@ -18,7 +18,7 @@ Environment=OMP_NUM_THREADS=1
 Environment=MKL_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=NUMEXPR_NUM_THREADS=1
-Environment=PYTHONPATH=%h/air1_all_zones_cv_time_features_package/.python-packages:%h/air1_all_zones_cv_time_features_package
+Environment=PYTHONPATH=%h/smart-i-lab-testbed/air1_all_zones_cv_time_features_package/.python-packages:%h/smart-i-lab-testbed/air1_all_zones_cv_time_features_package
 ExecStart=/usr/bin/env bash -lc 'exec bash run_live_collector.sh >> logs/live_collector.log 2>&1'
 Restart=always
 RestartSec=10

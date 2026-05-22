@@ -1,0 +1,25 @@
+# Caddy reverse proxy in front of the SSL IoT-1 stack.
+# Copy to `Caddyfile` and edit the DOMAIN entries.
+
+# Digital Twin (frontend)
+digitaltwin.lab.example {
+    reverse_proxy web:5500
+    encode gzip zstd
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+}
+
+# REST API
+api.lab.example {
+    reverse_proxy webapp:3000
+    encode gzip zstd
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options nosniff
+    }
+    @writes method POST PUT DELETE
+    rate_limit @writes 60r/m
+}

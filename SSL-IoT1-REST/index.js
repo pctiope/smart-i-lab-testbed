@@ -1,47 +1,67 @@
+'use strict';
 // Index JS
 // Author: SSL - IoT 1
 // University of the Philippines - Diliman Electrical and Electronics Engineering Institute
 
 // ------- START NodeJS/Express Setup ------ //
-// Require Node.js File System
 const fs = require("fs/promises");
-// Require Express connection
 const express = require("express");
-// Require CORS communication *NOT USED, BUT FOR FRONT-END*
 const cors = require("cors");
-// Require lodash for randomization *NOT USED YET -- ID'S, TOKENS*
-const _ = require("lodash");
-// Require uuid to Generate Unique IDs *NOT USED YET*
-const { v4: uuidv4, parse} = require("uuid");
-// dotenv package
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+const { v4: uuidv4 } = require("uuid");
 require('dotenv').config();
-// MQTT Package
 const mqtt = require("mqtt");
 const url = `${process.env.MQTT_IP}:${process.env.MQTT_PORT}`;
-// Server Start-up
-const app = express();
-app.use(cors({origin: '*'}));
 
-// Add middleware to support JSON
-app.use(express.json());
+const app = express();
+app.use(helmet());
+app.use(cors({origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(s => s.trim()).filter(Boolean) : false}));
+app.use(express.json({limit: '10kb'}));
+app.use((req, res, next) => {
+    req.setTimeout(15000, () => { if (!res.headersSent) res.status(503).json({error: 'Request timeout'}); });
+    next();
+});
+
+const authLimiter = rateLimit({windowMs: 15 * 60 * 1000, max: 100, standardHeaders: true, legacyHeaders: false});
+const writeLimiter = rateLimit({windowMs: 60 * 1000, max: 60, standardHeaders: true, legacyHeaders: false});
+app.use(['/access', '/users'], authLimiter);
+app.use((req, res, next) => {
+    if (req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE') return writeLimiter(req, res, next);
+    next();
+});
 // -------- END NodeJS/Express Setup ------- //
 
 
 // -- START PostgreSQL Connection Options -- //
-const {Client} = require('pg')
-var format = require('pg-format');
-const {Result} = require("lodash");
+const {Pool} = require('pg');
+const format = require('pg-format');
 
-const client = new Client({
-    host: process.env.DATABASE_IP,   // Requires eduroam or EEE VPN access
+// Pool auto-reconnects on transient failures and serves concurrent queries.
+// Keep the variable name `client` so the rest of the file's .query() calls work unchanged.
+const client = new Pool({
+    host: process.env.DATABASE_IP,
     user: process.env.DATABASE_USERNAME,
     port: process.env.DATABASE_PORT,
     password: process.env.DATABASE_PASSWORD,
     database: process.env.DATABASE_NAME,
-})
-
-client.connect();
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+});
+client.on('error', (err) => server_Log(`PG pool error — ${sanitizePgError(err)}`));
 // --- END PostgreSQL Connection Options --- //
+
+// Allow-list of column names per device-table prefix, used by GET_avg to
+// reject column-enumeration attacks via the sensData query parameter (§4.3).
+const SENSOR_COLUMNS = {
+    apollo_air_1:        ['co2','pressure','temperature','humidity','nox','voc','pm_1_0','pm_2_5','pm_4_0','pm_10_0','brightness'],
+    apollo_msr_2:        ['co2','pressure','temperature','light','uv_index','detection_distance','moving_distance','still_distance','brightness','zone_1_occupancy','zone_2_occupancy','zone_3_occupancy','radar_zone_1_occupancy','radar_zone_2_occupancy','radar_zone_3_occupancy'],
+    athom_smart_plug_v2: ['current','energy','power','total_daily_energy','total_energy','voltage'],
+    airgradient_one:     ['co2','temperature','humidity','nox','voc','pm_0_3','pm_1_0','pm_2_5','pm_10_0','brightness'],
+    sensibo:             ['temperature','humidity','target_temperature'],
+    zigbee2mqtt:         ['brightness','position'],
+};
 
 
 // ----- START MQTT Connection Options ----- //
@@ -53,7 +73,7 @@ const options = {
     clientId: process.env.MQTT_CLIENT_ID,
     username: process.env.MQTT_USERNAME,
     password: process.env.MQTT_PASSWORD,
-    reconnectPeriod: process.env.MQTT_RECONNECT_PERMISSION,
+    reconnectPeriod: process.env.MQTT_RECONNECT_PERIOD,
 }
 
 const mqttclient = mqtt.connect(url, options);
@@ -79,10 +99,31 @@ async function server_Log(logs) {
         console.log(`[${year}-${month}-${day} ${hours}:${minutes}:${seconds}:${mseconds}] ${logs}`);
         return;
     }catch(err){
-        console.log(`[${year}-${month}-${day} ${hours}:${minutes}:${seconds}:${mseconds}] Internal Server Error: An unexpected error occurred in the server logging function\n${err}`);
+        console.log(`Internal Server Error: An unexpected error occurred in the server logging function\n${err && err.message ? err.message : err}`);
         return '';
     }
 }
+
+// Sanitize PG errors for logs — keep SQLSTATE + message, drop detail/hint/position which can leak schema.
+function sanitizePgError(err) {
+    if (!err) return 'unknown error';
+    if (err.code) return `[${err.code}] ${err.message || ''}`;
+    return err.message || String(err);
+}
+
+// Auth cache — 5 min TTL on api_key → {user_name, access_level}
+const AUTH_CACHE_TTL_MS = 5 * 60 * 1000;
+const authCache = new Map();
+function authCacheGet(api_key) {
+    const v = authCache.get(api_key);
+    if (!v) return null;
+    if (Date.now() > v.expiresAt) { authCache.delete(api_key); return null; }
+    return v;
+}
+function authCacheSet(api_key, user_name, access_level) {
+    authCache.set(api_key, {user_name, access_level, expiresAt: Date.now() + AUTH_CACHE_TTL_MS});
+}
+function authCacheInvalidate(api_key) { authCache.delete(api_key); }
 
 // ____ SECURITY START ____
 
@@ -97,31 +138,37 @@ async function USER_is_available(user_name) {
 }
 
 async function KEY_is_available(api_key) {
+    if (authCacheGet(api_key)) return true;
     try{
         const queryResult = await client.query('SELECT * FROM users WHERE api_key = $1;', [api_key]);
         return !(queryResult.rowCount === 0);
     }catch(err){
-        server_Log(`Internal Server Error: An unexpected error occurred in KEY_is_available function\n${err}`);
+        server_Log(`Internal Server Error: KEY_is_available — ${sanitizePgError(err)}`);
         return false;
     }
 }
 
 async function RETURN_access_level(api_key) {
-    try{
-        const result = await client.query(`SELECT * FROM users WHERE api_key = $1;`, [api_key]);
-        return result.rows[0]["access_level"];
-    }catch(err){
-        server_Log(`Internal Server Error: An unexpected error occurred in RETURN_access_level function\n${err}`);
-        return -1;
-    }
+    const cached = authCacheGet(api_key);
+    if (cached) return cached.access_level;
+    const result = await client.query('SELECT user_name, access_level FROM users WHERE api_key = $1;', [api_key]);
+    if (result.rowCount === 0) throw new Error('api_key not found');
+    const {user_name, access_level} = result.rows[0];
+    authCacheSet(api_key, user_name, access_level);
+    return access_level;
 }
 
 async function RETURN_user_name(api_key) {
+    const cached = authCacheGet(api_key);
+    if (cached) return cached.user_name;
     try{
-        const result = await client.query(`SELECT * FROM users WHERE api_key = $1;`, [api_key]);
-        return result.rows[0]["user_name"];
+        const result = await client.query('SELECT user_name, access_level FROM users WHERE api_key = $1;', [api_key]);
+        if (result.rowCount === 0) return '';
+        const {user_name, access_level} = result.rows[0];
+        authCacheSet(api_key, user_name, access_level);
+        return user_name;
     }catch(err){
-        server_Log(`Internal Server Error: An unexpected error occurred in RETURN_user_name function\n${err}`);
+        server_Log(`Internal Server Error: RETURN_user_name — ${sanitizePgError(err)}`);
         return '';
     }
 }
@@ -129,23 +176,24 @@ async function RETURN_user_name(api_key) {
 async function SECURITY_CHECK(res, req, api_key, array) {
     try{
         let to_verify = await KEY_is_available(api_key);
-        if(to_verify){
-            access_level = await RETURN_access_level(api_key);
-        }else{
+        if(!to_verify){
             server_Log(`Not Found: API Key does not exist`);
             res.status(401).json({ error: `API Key does not exist: Ensure your API key is valid and correctly provided.`});
             return false;
         }
 
+        const access_level = await RETURN_access_level(api_key);
+
         if(array.includes(access_level)){
-            return true;  //check if access level matches one of the described values
+            return true;
         }
 
         server_Log(`Forbidden Request: User does not have access to this endpoint`);
         res.status(403).json({ error: `Forbidden Request: User does not have access to this endpoint`});
         return false;
     }catch(err){
-        server_Log(`Internal Server Error: An unexpected error occurred in SECURITY_CHECK function\n${err}`);
+        server_Log(`Internal Server Error: SECURITY_CHECK — ${sanitizePgError(err)}`);
+        if (!res.headersSent) res.status(500).json({error: 'Internal Server Error'});
         return false;
     }
 }
@@ -171,19 +219,16 @@ async function getCurrentTimestamp() {
 
 async function UPDATE_transactions(api_key, type, uri, success) {
     try{
-        if(await RETURN_user_name(api_key)==="Digital_Twin"){
-            return;
-        }
-
-        client.query(`INSERT INTO transactions (timestamp, user_name, type, uri, success) VALUES ($1, $2, $3, $4, $5);`, [await getCurrentTimestamp(), await RETURN_user_name(api_key), type, uri, success], (err, response) => {
-            if(!err){
-                server_Log("Successfully logged transaction");
-            }else{
-                server_Log("ERROR: Unsuccessfully logged transaction");
+        const user_name = await RETURN_user_name(api_key);
+        const ts = await getCurrentTimestamp();
+        // Digital_Twin used to be skipped here; now logged so the audit trail has no blind spot.
+        client.query(`INSERT INTO transactions (timestamp, user_name, type, uri, success) VALUES ($1, $2, $3, $4, $5);`, [ts, user_name, type, uri, success], (err) => {
+            if(err){
+                server_Log(`ERROR: Unsuccessfully logged transaction — ${sanitizePgError(err)}`);
             }
         })
     }catch(err){
-        server_Log(`Internal Server Error: An unexpected error occurred in UPDATE_transactions function\n${err}`);
+        server_Log(`Internal Server Error: UPDATE_transactions — ${sanitizePgError(err)}`);
     }
 }
 // ____ TRANSACTIONS END ____
@@ -250,31 +295,28 @@ async function GET_data(res, req, deviceName, api_key, type, uri){
         // Step 2: Return data based on parameter values
         if(!timeStart && !timeEnd){
             // [A] If NO optional parameter values were given
-            const queryText = format('SELECT * FROM %I ORDER BY timestamp DESC LIMIT 1;', `${deviceName.toLowerCase().replaceAll("-","_").replaceAll(" ","_")}_${deviceID.replaceAll(".","_")}`)
-
-            client.query(queryText, (err, data) => {
-                if(err){
-                    server_Log(`Internal Server Error: Unable to get most recent data from ${deviceName} with ID: ${deviceID}`);
-                    return res.status(500).send(`Internal Server Error: Unable to get most recent data from ${deviceName} with ID: ${deviceID}`);
-                }
+            const queryText = format('SELECT * FROM %I ORDER BY timestamp DESC LIMIT 1;', `${deviceName.toLowerCase().replaceAll("-","_").replaceAll(" ","_")}_${deviceID.replaceAll(".","_")}`);
+            try {
+                const data = await client.query(queryText);
                 server_Log(`Successfully returned most recent data from ${deviceName} with ID: ${deviceID}`);
                 UPDATE_transactions(api_key, type, uri, true);
-                res.json(data.rows[0]);
-            })
+                return res.json(data.rows[0]);
+            } catch (err) {
+                server_Log(`Internal Server Error: Unable to get most recent data from ${deviceName} with ID: ${deviceID} — ${sanitizePgError(err)}`);
+                return res.status(500).send(`Internal Server Error: Unable to get most recent data from ${deviceName} with ID: ${deviceID}`);
+            }
         }else if(timeStart && timeEnd){
             // [B] If optional parameter values for timeStart and timeEnd were given
             const queryText = format('SELECT * FROM %I WHERE timestamp BETWEEN $1 AND $2;', `${deviceName.toLowerCase().replaceAll("-","_").replaceAll(" ","_")}_${deviceID.replaceAll(".","_")}`);
-            const queryValues = [timeStart, timeEnd];
-
-            client.query(queryText, queryValues, (err, data) => {
-                if(err){
-                    server_Log(`Bad Request: Invalid arguments in historical data GET request for ${deviceName} with ID: ${deviceID}`);
-                    return res.status(400).json({error: `Bad Request: Invalid arguments in historical data GET request for ${deviceName} with ID: ${deviceID}`});
-                }
+            try {
+                const data = await client.query(queryText, [timeStart, timeEnd]);
                 server_Log(`Successfully returned historical data (${timeStart} to ${timeEnd}) from ${deviceName} with ID: ${deviceID}`);
                 UPDATE_transactions(api_key, type, uri, true);
-                res.json(data.rows);
-            })
+                return res.json(data.rows);
+            } catch (err) {
+                server_Log(`Bad Request: Invalid arguments in historical data GET — ${sanitizePgError(err)}`);
+                return res.status(400).json({error: `Bad Request: Invalid arguments in historical data GET request for ${deviceName} with ID: ${deviceID}`});
+            }
         }else{
             // [C] If optional parameter values are INCOMPLETE (Error 400)
             server_Log(`Bad Request: Incomplete parameters in GET request for ${deviceName} with ID: ${deviceID}`);
@@ -300,8 +342,17 @@ async function GET_avg(res, req, deviceName, api_key, type, uri){
         const timeStart = req.query.time_start;
         const timeEnd = req.query.time_end;
 
+        const tablePrefix = deviceName.toLowerCase().replaceAll("-","_").replaceAll(" ","_");
+
+        // Step 1a: Validate specData against the per-device allow-list (§4.3).
+        if (specData && !(SENSOR_COLUMNS[tablePrefix] || []).includes(specData)) {
+            server_Log(`Bad Request: invalid sensData '${specData}' for ${deviceName}`);
+            UPDATE_transactions(api_key, type, uri, false);
+            return res.status(400).json({error: `Bad Request: invalid sensData for ${deviceName}`});
+        }
+
         // Step 1: Check if an deviceName with ID: deviceID is available
-        if(await ID_is_available(`${deviceName.toLowerCase().replaceAll("-","_").replaceAll(" ","_")}`, deviceID) === false){
+        if(await ID_is_available(tablePrefix, deviceID) === false){
             server_Log(`Not Found: ${deviceName} with ID: ${deviceID} does not exist`);
             UPDATE_transactions(api_key, type, uri, false);
             return res.status(404).json({error: `Not Found: ${deviceName} with ID: ${deviceID} does not exist`});
@@ -311,30 +362,33 @@ async function GET_avg(res, req, deviceName, api_key, type, uri){
         if(!timeStart && !timeEnd && specData){
             // [A] If NO optional parameter values were given
             const queryText = format(`SELECT average(time_weight('Linear', timestamp, %I)) as time_weighted_average FROM %I WHERE timestamp > NOW() - INTERVAL '1 day';`, `${specData}`, `${deviceName.toLowerCase().replaceAll("-","_").replaceAll(" ","_")}_${deviceID.replaceAll(".","_")}`);
-
-            client.query(queryText, (err, data) => {
-                if(err || data.rowCount === 0){
-                    server_Log(`Internal Server Error: Unable to get average historical ${specData} data from ${deviceName} with ID: ${deviceID}`);
-                    return res.status(500).send(`Internal Server Error: Unable to get average historical ${specData} data from ${deviceName} with ID: ${deviceID}`);
+            try {
+                const data = await client.query(queryText);
+                if (data.rowCount === 0) {
+                    return res.status(404).json({error: `No data for ${deviceName} with ID: ${deviceID}`});
                 }
                 server_Log(`Successfully returned average historical ${specData} data (last 24 hours) from ${deviceName} with ID: ${deviceID}`);
                 UPDATE_transactions(api_key, type, uri, true);
-                res.json(data.rows[0]);
-            })
+                return res.json(data.rows[0]);
+            } catch (err) {
+                server_Log(`Internal Server Error: ${sanitizePgError(err)}`);
+                return res.status(500).send(`Internal Server Error: Unable to get average historical ${specData} data from ${deviceName} with ID: ${deviceID}`);
+            }
         }else if(timeStart && timeEnd && specData){
             // [B] If optional parameter values for timeStart and timeEnd were given
             const queryText = format(`SELECT average(time_weight('Linear', timestamp, %I)) as time_weighted_average FROM %I WHERE timestamp BETWEEN $1 AND $2;`, `${specData}`, `${deviceName.toLowerCase().replaceAll("-","_").replaceAll(" ","_")}_${deviceID}`);
-            const queryValues = [timeStart, timeEnd];
-
-            client.query(queryText, queryValues, (err, data) => {
-                if(err || data.rowCount === 0){
-                    server_Log(`Bad Request: Invalid arguments in average historical ${specData} data GET request for ${deviceName} with ID: ${deviceID}`);
-                    return res.status(400).json({error: `Bad Request: Invalid arguments in average historical ${specData} data GET request for ${deviceName} with ID: ${deviceID}`});
+            try {
+                const data = await client.query(queryText, [timeStart, timeEnd]);
+                if (data.rowCount === 0) {
+                    return res.status(404).json({error: `No data in the requested range`});
                 }
                 server_Log(`Successfully returned average historical ${specData} data (${timeStart} to ${timeEnd}) from ${deviceName} with ID: ${deviceID}`);
                 UPDATE_transactions(api_key, type, uri, true);
-                res.json(data.rows);
-            })
+                return res.json(data.rows);
+            } catch (err) {
+                server_Log(`Bad Request: ${sanitizePgError(err)}`);
+                return res.status(400).json({error: `Bad Request: Invalid arguments in average historical ${specData} data GET request for ${deviceName} with ID: ${deviceID}`});
+            }
         }else{
             // [C] If optional parameter values are INCOMPLETE (Error 400)
             server_Log(`Bad Request: Incomplete parameters in GET average historical data request for ${deviceName} with ID: ${deviceID}`);
@@ -387,7 +441,7 @@ async function POST_light(res, req, deviceName, api_key, type, uri){
             toPublish['state'] = lightState;
         }
         if(lightRed){
-            if(lightRed < 0 || lightRed > 1){
+            if(!Number.isFinite(+lightRed) || +lightRed < 0 || +lightRed > 1){
                 server_Log(`Bad Request: Invalid 'red' parameter in POST request for ${deviceName} with ID: ${deviceID}. \n - Given value: ${lightRed} \n - Possible values: any value from 0-1`);
                 UPDATE_transactions(api_key, type, uri, false);
                 return res.status(400).json({error: `Bad Request: Invalid 'red' parameter in POST request for ${deviceName} with ID: ${deviceID}. | Given value: ${lightRed} | Possible values: any value from 0-1`});
@@ -395,7 +449,7 @@ async function POST_light(res, req, deviceName, api_key, type, uri){
             toPublish['r'] = lightRed;
         }
         if(lightGreen){
-            if(lightGreen < 0 || lightGreen > 1){
+            if(!Number.isFinite(+lightGreen) || +lightGreen < 0 || +lightGreen > 1){
                 server_Log(`Bad Request: Invalid 'green' parameter in POST request for ${deviceName} with ID: ${deviceID}. \n - Given value: ${lightGreen} \n - Possible values: any value from 0-1`);
                 UPDATE_transactions(api_key, type, uri, false);
                 return res.status(400).json({error: `Bad Request: Invalid 'green' parameter in POST request for ${deviceName} with ID: ${deviceID}. | Given value: ${lightGreen} | Possible values: any value from 0-1`});
@@ -403,7 +457,7 @@ async function POST_light(res, req, deviceName, api_key, type, uri){
             toPublish['g'] = lightGreen;
         }
         if(lightBlue){
-            if(lightBlue < 0 || lightBlue > 1){
+            if(!Number.isFinite(+lightBlue) || +lightBlue < 0 || +lightBlue > 1){
                 server_Log(`Bad Request: Invalid 'blue' parameter in POST request for ${deviceName} with ID: ${deviceID}. \n - Given value: ${lightBlue} \n - Possible values: any value from 0-1`);
                 UPDATE_transactions(api_key, type, uri, false);
                 return res.status(400).json({error: `Bad Request: Invalid 'blue' parameter in POST request for ${deviceName} with ID: ${deviceID}. | Given value: ${lightBlue} | Possible values: any value from 0-1`});
@@ -411,7 +465,7 @@ async function POST_light(res, req, deviceName, api_key, type, uri){
             toPublish['b'] = lightBlue;
         }
         if(lightBrightness){
-            if(lightBrightness < 0 || lightBrightness > 1){
+            if(!Number.isFinite(+lightBrightness) || +lightBrightness < 0 || +lightBrightness > 1){
                 server_Log(`Bad Request: Invalid 'brightness' parameter in POST request for ${deviceName} with ID: ${deviceID}. \n - Given value: ${lightBrightness} \n - Possible values: any value from 0-1`);
                 UPDATE_transactions(api_key, type, uri, false);
                 return res.status(400).json({error: `Bad Request: Invalid 'brightness' parameter in POST request for ${deviceName} with ID: ${deviceID}. | Given value: ${lightBrightness} | Possible values: any value from 0-1`});
@@ -420,14 +474,14 @@ async function POST_light(res, req, deviceName, api_key, type, uri){
         }
 
         // Step 4: Publish the JSON file to the correct MQTT topic to set the LED light/strip
-        mqttclient.publish(`${deviceName.toLowerCase().replace("-","_").replace(" ","_")}_${deviceID}/light`, JSON.stringify(toPublish), { qos: 2 }, (err) => {
+        mqttclient.publish(`${deviceName.toLowerCase().replaceAll("-","_").replaceAll(" ","_")}_${deviceID}/light`, JSON.stringify(toPublish), { qos: 2 }, (err) => {
             if (err) {
                 server_Log(`Internal Server Error: MQTT Connection Failed`);
                 UPDATE_transactions(api_key, type, uri, false);
                 return res.status(500).json({error: `Internal Server Error: MQTT Connection Failed`});
             }else{
                 server_Log(`POST request to ${deviceName} with ID: ${deviceID} OK`);
-                server_Log(` - MQTT Topic: ${deviceName.toLowerCase().replace("-","_").replace(" ","_")}_${deviceID}/light`);
+                server_Log(` - MQTT Topic: ${deviceName.toLowerCase().replaceAll("-","_").replaceAll(" ","_")}_${deviceID}/light`);
                 server_Log(` - JSON File: ${JSON.stringify(toPublish)}`);
                 UPDATE_transactions(api_key, type, uri, true);
                 return res.status(200).send(`POST request to ${deviceName} with ID: ${deviceID} OK`);
@@ -445,6 +499,18 @@ async function POST_light(res, req, deviceName, api_key, type, uri){
 
 
 // ----------- START Define REST Endpoints ---------- //
+
+// Public health probe — no auth, used by Docker healthcheck and external monitoring.
+// Returns 200 if the PG pool can serve a trivial query, 503 otherwise.
+app.get('/healthz', async (req, res) => {
+    try {
+        await client.query('SELECT 1');
+        return res.status(200).json({status: 'ok'});
+    } catch (err) {
+        server_Log(`healthz: db unreachable — ${sanitizePgError(err)}`);
+        return res.status(503).json({status: 'db_unreachable'});
+    }
+});
 
 // START Digital Twin Endpoints -------------------------- //
 
@@ -486,22 +552,17 @@ app.get("/users", async (req,res)=>{
             return;
         }
 
-        //RETURN LIST OF USERS
-        client.query(`SELECT * FROM users`, (err, response) => {
-            if(response){
-                let arr_user_names = [];
-                for (let user in response.rows){
-                    arr_user_names.push(response.rows[user]["user_name"]);
-                }
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
-                server_Log(`Successfully returned list of usernames`);
-                res.json(arr_user_names);
-            } else {
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                server_Log(`Database Error Occurred: An unexpected error occurred while creating the user.`);
-                return res.status(500).json({ error: `Database Error Occurred: An unexpected error occurred while creating the user.` });
-            }
-        })
+        try {
+            const response = await client.query('SELECT user_name FROM users;');
+            const arr_user_names = response.rows.map(r => r.user_name);
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
+            server_Log(`Successfully returned list of usernames`);
+            return res.json(arr_user_names);
+        } catch (err) {
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+            server_Log(`Database Error Occurred while listing users — ${sanitizePgError(err)}`);
+            return res.status(500).json({ error: `Database Error Occurred.` });
+        }
     }catch(err){
         server_Log(`Internal Server Error: An unexpected error occurred\n${err}`);
         return res.status(500).json({error: `Internal Server Error: An unexpected error occurred`});
@@ -535,29 +596,27 @@ app.post("/users/:user_name", async (req,res)=>{
             return res.status(400).json({ error: `Missing required parameters: Ensure all required fields are provided.` });
         }
 
-        // Check access_level is a number
-        if(!(/\d/.test(access_level))){
-            server_Log(`ERROR: Invalid data type`);
+        // Strict access_level validation (§4.6) — must be integer 0, 1, or 2.
+        const access_level_num = Number(access_level);
+        if (!Number.isInteger(access_level_num) || access_level_num < 0 || access_level_num > 2) {
+            server_Log(`ERROR: Invalid access_level`);
             UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-            return res.status(400).json({ error: `Invalid data type: Ensure all parameters are of the correct data type.` });
+            return res.status(400).json({ error: `access_level must be 0, 1, or 2` });
         }
 
-        // CREATE USER IN DATABASE
-        // INSERT INTO users (username, api_key, access_level)
-        // VALUES ('peter', 'j1324lkj1234k1j234','0');
-        client.query(`INSERT INTO users (user_name, api_key, access_level) VALUES ('${user_name}', '${api_key}','${access_level}')`, (err, response) => {
-            if (!err){
-                //SUCCESS
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
-                server_Log(`SUCCESSFULLY create new user ${user_name}`);
-                return res.status(200).send();
-            } else {
-                //ERROR PGADMIN
-                server_Log("ERROR: Unsuccessfully in creating new user");
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                return res.status(500).json({ error: `Database error occurred: An unexpected error occurred while creating the user.` });
-            }
-        })
+        try {
+            await client.query(
+                'INSERT INTO users (user_name, api_key, access_level) VALUES ($1, $2, $3)',
+                [user_name, api_key, access_level_num]
+            );
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
+            server_Log(`SUCCESSFULLY create new user ${user_name}`);
+            return res.status(200).send();
+        } catch (err) {
+            server_Log(`ERROR: Unsuccessfully in creating new user — ${sanitizePgError(err)}`);
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+            return res.status(500).json({ error: `Database error occurred while creating the user.` });
+        }
     }catch(err){
         server_Log(`Internal Server Error: An unexpected error occurred\n${err}`);
         return res.status(500).json({error: `Internal Server Error: An unexpected error occurred`});
@@ -581,18 +640,16 @@ app.get("/users/:user_name", async (req,res)=>{
             return res.status(404).json({ error: `Not Found: User ${user_name} not available` });
         }
 
-        //Return specific userdata
-        client.query(`SELECT * FROM users WHERE user_name='${user_name}'`, (err, response) => {
-            if(response){
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
-                server_Log(`SUCCESSFULLY return data of user ${user_name}`);
-                res.json(response.rows[0]);
-            }
-            else {
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                return res.status(500).json({ error: `Database error occurred: An unexpected error occurred.` });
-            }
-        })
+        try {
+            const response = await client.query('SELECT user_name, api_key, access_level FROM users WHERE user_name = $1;', [user_name]);
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
+            server_Log(`SUCCESSFULLY return data of user ${user_name}`);
+            return res.json(response.rows[0]);
+        } catch (err) {
+            server_Log(`ERROR: GET /users/:user_name — ${sanitizePgError(err)}`);
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+            return res.status(500).json({ error: `Database error occurred.` });
+        }
     }catch(err){
         server_Log(`Internal Server Error: An unexpected error occurred\n${err}`);
         return res.status(500).json({error: `Internal Server Error: An unexpected error occurred`});
@@ -619,37 +676,31 @@ app.put("/users/:user_name", async (req,res)=>{
             return res.status(404).json({ error: `Not Found: User ${user_name} not available` });
         }
 
-        // Check if access_level is defined
-        if(access_level !== undefined){
-            //do nothing
-        }else{
+        // Strict access_level validation (§4.6) — must be integer 0, 1, or 2.
+        if (access_level === undefined) {
             server_Log(`ERROR: Request Incomplete Parameters`);
             UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
             return res.status(400).json({ error: `Missing required parameters: Ensure all required fields are provided.` });
         }
-
-        // Check access_level is a number
-        if(/\d/.test(access_level)){
-            //do nothing
-        }else{
-            server_Log(`ERROR: Invalid data type`);
+        const access_level_num = Number(access_level);
+        if (!Number.isInteger(access_level_num) || access_level_num < 0 || access_level_num > 2) {
+            server_Log(`ERROR: Invalid access_level`);
             UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-            return res.status(400).json({ error: `Invalid data type: Ensure all parameters are of the correct data type.` });
+            return res.status(400).json({ error: `access_level must be 0, 1, or 2` });
         }
+        // Invalidate auth cache so the change takes effect immediately rather than on TTL expiry.
+        authCache.clear();
 
-        client.query(`UPDATE users SET access_level = '${access_level}' WHERE user_name = '${user_name}'`, (err, response) => {
-            if (!err){
-                //SUCCESS
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
-                server_Log(`SUCCESSFULLY changed access level of user ${user_name} to ${access_level}`);
-                return res.status(200).send();
-            } else {
-                //ERROR PGADMIN
-                server_Log(`ERROR: Unsuccessfully modified user ${user_name}'s access level to ${access_level}`);
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                return res.status(500).json({ error: `Database error occurred: An unexpected error occurred.` });
-            }
-        })
+        try {
+            await client.query('UPDATE users SET access_level = $1 WHERE user_name = $2;', [access_level_num, user_name]);
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
+            server_Log(`SUCCESSFULLY changed access level of user ${user_name} to ${access_level_num}`);
+            return res.status(200).send();
+        } catch (err) {
+            server_Log(`ERROR: Unsuccessfully modified user ${user_name}'s access level — ${sanitizePgError(err)}`);
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+            return res.status(500).json({ error: `Database error occurred.` });
+        }
     }catch(err){
         server_Log(`Internal Server Error: An unexpected error occurred\n${err}`);
         return res.status(500).json({error: `Internal Server Error: An unexpected error occurred`});
@@ -674,22 +725,17 @@ app.delete("/users/:user_name", async (req,res)=>{
             return res.status(404).json({ error: `Not Found: User '${user_name}' not available` });
         }
 
-        //DELETE USER IN DATABASE
-        // DELETE FROM users WHERE user_name ='peter';
-        client.query(`DELETE FROM users WHERE user_name = '${user_name}'`, (err, response) => {
-            if (!err){
-                //SUCCESS
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
-                server_Log(`SUCCESSFULLY deleted user ${user_name}`);
-                return res.status(200).send();
-            } else {
-                //ERROR PGADMIN
-                server_Log(`ERROR: Unsuccessfully deleted user ${user_name}`);
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                return res.status(500).json({ error: `Database error occurred: An unexpected error occurred.` });
-            }
-            //END POSTGRES CONNECTION
-        })
+        try {
+            await client.query('DELETE FROM users WHERE user_name = $1;', [user_name]);
+            authCache.clear();
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
+            server_Log(`SUCCESSFULLY deleted user ${user_name}`);
+            return res.status(200).send();
+        } catch (err) {
+            server_Log(`ERROR: Unsuccessfully deleted user ${user_name} — ${sanitizePgError(err)}`);
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+            return res.status(500).json({ error: `Database error occurred.` });
+        }
     }catch(err){
         server_Log(`Internal Server Error: An unexpected error occurred\n${err}`);
         return res.status(500).json({error: `Internal Server Error: An unexpected error occurred`});
@@ -716,37 +762,28 @@ app.get("/transactions", async (req,res)=>{
 
         // Step 1: Return data based on parameter values
         // [A] If NO optional parameters
-        if (!time_start && !time_end){
-            // Order all data by descending date and time and get ONLY the most recent
-            client.query(`SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 10`, (err, data) => {
-                if (!err){
-                    UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
-                    server_Log(`SUCCESSFULLY returned most recent transactions`);
-                    res.json(data.rows[0]);
-                } else {
-                    UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                    server_Log("ERROR: Getting most recent transactions");
-                }
-            })
-
+        if (!time_start && !time_end) {
+            try {
+                const data = await client.query('SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 10;');
+                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
+                server_Log('SUCCESSFULLY returned most recent transactions');
+                return res.json(data.rows);
+            } catch (err) {
+                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+                server_Log(`ERROR: Getting most recent transactions — ${sanitizePgError(err)}`);
+                return res.status(500).json({error: 'Database error occurred.'});
+            }
         } else if (time_start && time_end) {
-            // [B] With optional parameters time_start and time_end
-            /*
-            let arr_time_start = time_start.split("_");
-            let arr_time_end  = time_end.split("_");
-             */
-            client.query(`SELECT * FROM transactions WHERE (timestamp BETWEEN '${time_start}' AND '${time_end}')`, (err, data) => {
-                if(!err) {
-                    UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
-                    server_Log(`SUCCESSFULLY returned transactions`);
-                    res.json(data.rows);
-                } else {
-                    UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                    server_Log("ERROR: Getting transactions");
-                    return res.status(500).json({ error: `Database error occurred: An unexpected error occurred.` });
-                }
-            })
-
+            try {
+                const data = await client.query('SELECT * FROM transactions WHERE timestamp BETWEEN $1 AND $2;', [time_start, time_end]);
+                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
+                server_Log('SUCCESSFULLY returned transactions');
+                return res.json(data.rows);
+            } catch (err) {
+                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+                server_Log(`ERROR: Getting transactions — ${sanitizePgError(err)}`);
+                return res.status(500).json({error: 'Database error occurred.'});
+            }
         } else {
             // [C] Error 400: Optional parameters are INCOMPLETE
             server_Log("ERROR: Incomplete parameters in transactions request");
@@ -825,9 +862,9 @@ app.post("/msr-2/:id/buzzer", async (req, res) => {
 
         // Step 2: Check if the string to play was given
         if(!mtttl_string){
-            server_Log(`Bad Request: Incomplete parameters in POST request for Apollo MSR-2 with ID: ${device_id}`);
+            server_Log(`Bad Request: Incomplete parameters in POST request for Apollo MSR-2 with ID: ${deviceID}`);
             UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-            return res.status(400).json({error: `Bad Request: Incomplete parameters in POST request for Apollo MSR-2 with ID: ${device_id}`});
+            return res.status(400).json({error: `Bad Request: Incomplete parameters in POST request for Apollo MSR-2 with ID: ${deviceID}`});
         }
 
         // Step 3: Build and publish the JSON file to the correct MQTT topic to play the buzzer
@@ -1017,7 +1054,7 @@ app.post("/zigbee2mqtt/:id", async (req, res) => {
         // Step 1: Check if an Zigbee2MQTT device or group with ID: entity_id is available
         let baseTopic = "";
         let deviceType = "";
-        let queryResult = await client.query(`SELECT * FROM zigbee2mqtt WHERE id = '${entityID}'`);
+        let queryResult = await client.query('SELECT * FROM zigbee2mqtt WHERE id = $1;', [entityID]);
         if(!queryResult.rowCount) {
             server_Log(`Not Found: Zigbee2MQTT with ID: ${entityID} does not exist`);
             UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
@@ -1095,7 +1132,7 @@ app.post("/zigbee2mqtt/:id", async (req, res) => {
                 toPublish['state'] = blindsState;
             }
             if(blindsPosition) {
-                if (blindsPosition < 0 || blindsPosition > 100) {
+                if (!Number.isFinite(+blindsPosition) || +blindsPosition < 0 || +blindsPosition > 100) {
                     server_Log(`Bad Request: Invalid 'blinds_position' parameter in POST request for Zigbee2MQTT with ID: ${entityID}. \n - Given value: ${blindsPosition} \n - Possible values: any integer from 0 to 100`);
                     UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
                     return res.status(400).json({error: `Bad Request: Invalid 'blinds_position' parameter in POST request for Zigbee2MQTT with ID: ${entityID}. \n - Given value: ${blindsPosition} \n - Possible values: any integer from 0 to 100`});
@@ -1175,17 +1212,36 @@ app.post("/sensibo/:id/hvac", async (req, res) => {
                 UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
                 return res.status(404).json({error: `Bad Request: Invalid 'hvac_mode' parameter in POST request for Sensibo with ID: ${deviceID} | Given value: ${hvacMode} | Possible values: "off", "heat", "cool"`});
             }
-            let parameters = {"entity_id": deviceID, "hvac_mode": hvacMode};
-            await fetch(`${process.env.HOME_ASSISTANT_URL}:${process.env.HOME_ASSISTANT_PORT}/api/services/climate/set_hvac_mode`, {method: 'POST', body: JSON.stringify(parameters), headers: {"Authorization":`Bearer ${process.env.HOME_ASSISTANT_TOKEN}`, "content-type":"application/json"}})
+            // §4.7 — validate deviceID against a strict pattern so it cannot inject into URLs/JSON.
+            if (!/^[A-Za-z0-9._-]+$/.test(deviceID)) {
+                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+                return res.status(400).json({error: `Invalid deviceID format`});
+            }
+            const parameters = {"entity_id": deviceID, "hvac_mode": hvacMode};
+            const r1 = await fetch(`${process.env.HOME_ASSISTANT_URL}:${process.env.HOME_ASSISTANT_PORT}/api/services/climate/set_hvac_mode`, {method: 'POST', body: JSON.stringify(parameters), headers: {"Authorization":`Bearer ${process.env.HOME_ASSISTANT_TOKEN}`, "content-type":"application/json"}});
+            if (!r1.ok) {
+                server_Log(`Home Assistant set_hvac_mode failed: HTTP ${r1.status}`);
+                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+                return res.status(502).json({error: `Upstream Home Assistant call failed`});
+            }
         }
         if(targetTemperature){
-            if(targetTemperature < 10 || targetTemperature > 35){
+            if(!Number.isFinite(+targetTemperature) || +targetTemperature < 10 || +targetTemperature > 35){
                 server_Log(`Bad Request: Invalid 'target_temperature' parameter in POST request for Sensibo with ID: ${deviceID} \n - Given value: ${targetTemperature} \n - Possible values: any value from 10 to 35`);
                 UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                return res.status(404).json({error: `Bad Request: Invalid 'target_temperature' parameter in POST request for Sensibo with ID: ${deviceID} | Given value: ${targetTemperature} | Possible values: any value from 10 to 35`});
+                return res.status(400).json({error: `Bad Request: Invalid 'target_temperature' parameter in POST request for Sensibo with ID: ${deviceID} | Given value: ${targetTemperature} | Possible values: any value from 10 to 35`});
             }
-            let parameters = {"entity_id": deviceID, "temperature": targetTemperature};
-            await fetch(`${process.env.HOME_ASSISTANT_URL}:${process.env.HOME_ASSISTANT_PORT}/api/services/climate/set_temperature`, {method: 'POST', body: JSON.stringify(parameters), headers: {"Authorization":`Bearer ${process.env.HOME_ASSISTANT_TOKEN}`, "content-type":"application/json"}});
+            if (!/^[A-Za-z0-9._-]+$/.test(deviceID)) {
+                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+                return res.status(400).json({error: `Invalid deviceID format`});
+            }
+            const parameters = {"entity_id": deviceID, "temperature": targetTemperature};
+            const r2 = await fetch(`${process.env.HOME_ASSISTANT_URL}:${process.env.HOME_ASSISTANT_PORT}/api/services/climate/set_temperature`, {method: 'POST', body: JSON.stringify(parameters), headers: {"Authorization":`Bearer ${process.env.HOME_ASSISTANT_TOKEN}`, "content-type":"application/json"}});
+            if (!r2.ok) {
+                server_Log(`Home Assistant set_temperature failed: HTTP ${r2.status}`);
+                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+                return res.status(502).json({error: `Upstream Home Assistant call failed`});
+            }
         }
 
         // Step 4: Return status 200 OK
@@ -1253,10 +1309,10 @@ app.post("/groups", async (req, res) => {
 
         const id = req.query.id;
         // Optional arguments; will be NULL if not provided
-        apollo_air_1_ids = req.query.apollo_air_1_ids;
-        apollo_msr_2_ids = req.query.apollo_msr_2_ids;
-        athom_smart_plug_v2_ids = req.query.athom_smart_plug_v2_ids;
-        zigbee2mqtt_ids = req.query.zigbee2mqtt_ids;
+        let apollo_air_1_ids = req.query.apollo_air_1_ids;
+        let apollo_msr_2_ids = req.query.apollo_msr_2_ids;
+        let athom_smart_plug_v2_ids = req.query.athom_smart_plug_v2_ids;
+        let zigbee2mqtt_ids = req.query.zigbee2mqtt_ids;
 
         // Step 1: Check if the id is already taken
         let queryText = 'SELECT * FROM groups WHERE id = $1;';
@@ -1269,55 +1325,65 @@ app.post("/groups", async (req, res) => {
             return res.status(400).json({error: `Bad Request: There is already a group with ID: ${id}`});
         }
 
-        // Step 2: Build the data for the query and check if the given device IDs are valid
-        let deviceIDs = [apollo_air_1_ids, apollo_msr_2_ids, athom_smart_plug_v2_ids, zigbee2mqtt_ids];
-        let deviceNames = ['Apollo AIR-1', 'Apollo MSR-2', 'Athom Smart Plug v2', 'Zigbee2MQTT'];
-        let data = {"id":`'${id}'`};
-        let id_is_available = true;
+        // Step 2: Validate each device id against its registry table.
+        // §4.2 — column names are now an allow-list, values are parameterized.
+        const GROUP_COLUMN_BY_NAME = {
+            'Apollo AIR-1':        'apollo_air_1_ids',
+            'Apollo MSR-2':        'apollo_msr_2_ids',
+            'Athom Smart Plug v2': 'athom_smart_plug_v2_ids',
+            'Zigbee2MQTT':         'zigbee2mqtt_ids',
+        };
+        const REGISTRY_TABLE_BY_NAME = {
+            'Apollo AIR-1':        'apollo_air_1',
+            'Apollo MSR-2':        'apollo_msr_2',
+            'Athom Smart Plug v2': 'athom_smart_plug_v2',
+            'Zigbee2MQTT':         'zigbee2mqtt',
+        };
+        const inputs = [
+            ['Apollo AIR-1',        apollo_air_1_ids],
+            ['Apollo MSR-2',        apollo_msr_2_ids],
+            ['Athom Smart Plug v2', athom_smart_plug_v2_ids],
+            ['Zigbee2MQTT',         zigbee2mqtt_ids],
+        ];
 
-        for(let nameIndex = 0; nameIndex < deviceIDs.length; nameIndex++){
-            if(!deviceIDs[nameIndex]){
-                continue;
-            }
+        const columns = ['id'];
+        const params = [id];
 
-            if(typeof(deviceIDs[nameIndex]) === "string"){
-                deviceIDs[nameIndex] = [deviceIDs[nameIndex]];
-            }
+        for (let [deviceName, ids] of inputs) {
+            if (!ids) continue;
+            if (typeof ids === 'string') ids = [ids];
 
-            for(let idIndex = 0; idIndex < deviceIDs[nameIndex].length; idIndex++){
-                id_is_available = await ID_is_available(`${deviceNames[nameIndex].toLowerCase().replaceAll("-", "_").replaceAll(" ", "_")}`, deviceIDs[nameIndex][idIndex]);
-                if(!id_is_available){
-                    server_Log(`Not Found: ${deviceNames[nameIndex]} with ID: ${deviceIDs[nameIndex][idIndex]} does not exist`);
+            for (const deviceID of ids) {
+                const id_is_available = await ID_is_available(REGISTRY_TABLE_BY_NAME[deviceName], deviceID);
+                if (!id_is_available) {
+                    server_Log(`Not Found: ${deviceName} with ID: ${deviceID} does not exist`);
                     UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                    return res.status(404).json({error: `Not Found: ${deviceNames[nameIndex]} with ID: ${deviceIDs[nameIndex][idIndex]} does not exist`});
+                    return res.status(404).json({error: `Not Found: ${deviceName} with ID: ${deviceID} does not exist`});
                 }
-                if(deviceNames[nameIndex] === "Zigbee2MQTT"){
-                    queryText = 'SELECT * FROM zigbee2mqtt WHERE id = $1 AND type != $2;';
-                    queryValues = [deviceIDs[nameIndex][idIndex], 'group'];
-                    queryResult = await client.query(queryText, queryValues);
-
-                    if(!queryResult.rowCount){
-                        server_Log(`Bad Request: ${deviceNames[nameIndex]} with ID: ${deviceIDs[nameIndex][idIndex]} cannot be added to a group`);
+                if (deviceName === 'Zigbee2MQTT') {
+                    const check = await client.query('SELECT 1 FROM zigbee2mqtt WHERE id = $1 AND type != $2;', [deviceID, 'group']);
+                    if (!check.rowCount) {
+                        server_Log(`Bad Request: ${deviceName} with ID: ${deviceID} cannot be added to a group`);
                         UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                        return res.status(404).json({error: `Bad Request: ${deviceNames[nameIndex]} with ID: ${deviceIDs[nameIndex][idIndex]} cannot be added to a group`});
+                        return res.status(400).json({error: `Bad Request: ${deviceName} with ID: ${deviceID} cannot be added to a group`});
                     }
                 }
             }
 
-            data[`${deviceNames[nameIndex].toLowerCase().replaceAll("-", "_").replaceAll(" ", "_")}_ids`] = `'{${deviceIDs[nameIndex]}}'`;
+            columns.push(GROUP_COLUMN_BY_NAME[deviceName]);
+            params.push(ids);  // pg driver handles JS arrays as TEXT[]
         }
 
-        // Step 3: Insert data about the group into the database
-        queryText = format('INSERT INTO groups (%s) VALUES (%s);', Object.keys(data).toString(), Object.values(data).toString());
-
-        await client.query(queryText, (err) => {
-            if(err){
-                server_Log(err);
-                server_Log(`Bad Request: Bad arguments in POST request`);
-                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                return res.status(400).json({error: `Bad Request: Bad arguments in POST request`})
-            }
-        })
+        // Step 3: Insert with parameterized values. Column list is built from an allow-list.
+        const placeholders = params.map((_, i) => `$${i + 1}`).join(', ');
+        const queryTextInsert = `INSERT INTO groups (${columns.map(c => `"${c}"`).join(', ')}) VALUES (${placeholders});`;
+        try {
+            await client.query(queryTextInsert, params);
+        } catch (err) {
+            server_Log(`Bad Request: Bad arguments in POST /groups — ${sanitizePgError(err)}`);
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+            return res.status(400).json({error: `Bad Request: Bad arguments in POST request`});
+        }
 
         server_Log(`Successfully crated a new group with ID: ${id}`);
         if(apollo_air_1_ids){server_Log(` - Apollo AIR-1's: ${apollo_air_1_ids}`);}
@@ -1342,10 +1408,10 @@ app.put("/groups", async (req, res) => {
 
         const id = req.query.id;
         // Optional arguments; will be NULL if not provided
-        apollo_air_1_ids = req.query.apollo_air_1_ids;
-        apollo_msr_2_ids = req.query.apollo_msr_2_ids;
-        athom_smart_plug_v2_ids = req.query.athom_smart_plug_v2_ids;
-        zigbee2mqtt_ids = req.query.zigbee2mqtt_ids;
+        let apollo_air_1_ids = req.query.apollo_air_1_ids;
+        let apollo_msr_2_ids = req.query.apollo_msr_2_ids;
+        let athom_smart_plug_v2_ids = req.query.athom_smart_plug_v2_ids;
+        let zigbee2mqtt_ids = req.query.zigbee2mqtt_ids;
 
         // Step 1: Check if a group with ID: id is available
         let queryText = 'SELECT * FROM groups WHERE id = $1;';
@@ -1365,64 +1431,70 @@ app.put("/groups", async (req, res) => {
             return res.status(400).json({error: `Invalid request: Incomplete parameters in PUT request`});
         }
 
-        // Step 3: Build the data to be used in the query and check if the given device IDs are valid
-        let deviceIDs = [apollo_air_1_ids, apollo_msr_2_ids, athom_smart_plug_v2_ids, zigbee2mqtt_ids];
-        let deviceNames = ['Apollo AIR-1', 'Apollo MSR-2', 'Athom Smart Plug v2', 'Zigbee2MQTT'];
-        let data = {};
-        let id_is_available = true;
+        // Step 3: Validate device IDs against their registries (§4.2).
+        const GROUP_COLUMN_BY_NAME_PUT = {
+            'Apollo AIR-1':        'apollo_air_1_ids',
+            'Apollo MSR-2':        'apollo_msr_2_ids',
+            'Athom Smart Plug v2': 'athom_smart_plug_v2_ids',
+            'Zigbee2MQTT':         'zigbee2mqtt_ids',
+        };
+        const REGISTRY_TABLE_BY_NAME_PUT = {
+            'Apollo AIR-1':        'apollo_air_1',
+            'Apollo MSR-2':        'apollo_msr_2',
+            'Athom Smart Plug v2': 'athom_smart_plug_v2',
+            'Zigbee2MQTT':         'zigbee2mqtt',
+        };
+        const inputsPut = [
+            ['Apollo AIR-1',        apollo_air_1_ids],
+            ['Apollo MSR-2',        apollo_msr_2_ids],
+            ['Athom Smart Plug v2', athom_smart_plug_v2_ids],
+            ['Zigbee2MQTT',         zigbee2mqtt_ids],
+        ];
+        // setOps: list of {column, value} where value is null (REMOVE MEMBERS) or a JS array.
+        const setOps = [];
 
-        for(let nameIndex = 0; nameIndex < deviceIDs.length; nameIndex++){
-            if(!deviceIDs[nameIndex]){
+        for (let [deviceName, ids] of inputsPut) {
+            if (!ids) continue;
+
+            if (ids === '[REMOVE MEMBERS]') {
+                setOps.push({column: GROUP_COLUMN_BY_NAME_PUT[deviceName], value: null});
                 continue;
             }
+            if (typeof ids === 'string') ids = [ids];
 
-            if(typeof(deviceIDs[nameIndex]) === "string"){
-                if(deviceIDs[nameIndex] === "[REMOVE MEMBERS]"){
-                    data[`${deviceNames[nameIndex].toLowerCase().replaceAll("-", "_").replaceAll(" ", "_")}`] = 'NULL';
-                    continue;
-                }
-                if(typeof(deviceIDs[nameIndex]) === "string"){
-                    deviceIDs[nameIndex] = [deviceIDs[nameIndex]];
-                }
-            }
-
-            for(let idIndex = 0; idIndex < deviceIDs[nameIndex].length; idIndex++){
-                id_is_available = await ID_is_available(`${deviceNames[nameIndex].toLowerCase().replaceAll("-", "_").replaceAll(" ", "_")}`, deviceIDs[nameIndex][idIndex]);
-                if(!id_is_available){
-                    server_Log(`Not Found: ${deviceNames[nameIndex]} with ID: ${deviceIDs[nameIndex][idIndex]} does not exist`);
+            for (const deviceID of ids) {
+                const id_is_available = await ID_is_available(REGISTRY_TABLE_BY_NAME_PUT[deviceName], deviceID);
+                if (!id_is_available) {
+                    server_Log(`Not Found: ${deviceName} with ID: ${deviceID} does not exist`);
                     UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                    return res.status(404).json({error: `Not Found: ${deviceNames[nameIndex]} with ID: ${deviceIDs[nameIndex][idIndex]} does not exist`});
+                    return res.status(404).json({error: `Not Found: ${deviceName} with ID: ${deviceID} does not exist`});
                 }
-                if(deviceNames[nameIndex] === "Zigbee2MQTT"){
-                    queryText = 'SELECT * FROM zigbee2mqtt WHERE id = $1 AND type != $2;';
-                    queryValues = [deviceIDs[nameIndex][idIndex], 'group'];
-                    queryResult = await client.query(queryText, queryValues);
-
-                    if(!queryResult.rowCount){
-                        server_Log(`Bad Request: ${deviceNames[nameIndex]} with ID: ${deviceIDs[nameIndex][idIndex]} cannot be added to a group`);
+                if (deviceName === 'Zigbee2MQTT') {
+                    const check = await client.query('SELECT 1 FROM zigbee2mqtt WHERE id = $1 AND type != $2;', [deviceID, 'group']);
+                    if (!check.rowCount) {
+                        server_Log(`Bad Request: ${deviceName} with ID: ${deviceID} cannot be added to a group`);
                         UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                        return res.status(404).json({error: `Bad Request: ${deviceNames[nameIndex]} with ID: ${deviceIDs[nameIndex][idIndex]} cannot be added to a group`});
+                        return res.status(400).json({error: `Bad Request: ${deviceName} with ID: ${deviceID} cannot be added to a group`});
                     }
                 }
             }
 
-            data[`${deviceNames[nameIndex].toLowerCase().replaceAll("-", "_").replaceAll(" ", "_")}`] = `'{${deviceIDs[nameIndex]}}'`;
-
+            setOps.push({column: GROUP_COLUMN_BY_NAME_PUT[deviceName], value: ids});
         }
 
-        // Step 4: Edit the group's details in the database
-        for(let index = 0; index < Object.keys(data).length; index++){
-            queryText = format('UPDATE groups SET %I = %s WHERE id = %L;', `${Object.keys(data)[index]}_ids`, Object.values(data)[index], id);
-            server_Log(queryText);
-
-            await client.query(queryText, (err) => {
-                if(err){
-                    server_Log(err);
-                    server_Log(`ERROR: Bad arguments in PUT request`);
-                    UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                    return res.status(400).json({error: `Bad arguments in PUT request`})
-                }
-            })
+        // Step 4: Edit the group's details using a single parameterized UPDATE.
+        if (setOps.length) {
+            const setClauses = setOps.map((op, i) => `"${op.column}" = $${i + 1}`);
+            const params = setOps.map(op => op.value);
+            params.push(id);
+            const queryTextUpdate = `UPDATE groups SET ${setClauses.join(', ')} WHERE id = $${params.length};`;
+            try {
+                await client.query(queryTextUpdate, params);
+            } catch (err) {
+                server_Log(`ERROR: Bad arguments in PUT /groups — ${sanitizePgError(err)}`);
+                UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+                return res.status(400).json({error: `Bad arguments in PUT request`});
+            }
         }
 
         server_Log(`Successfully edited members of group with ID: ${id}`);
@@ -1460,14 +1532,16 @@ app.delete("/groups", async (req, res) => {
         }
 
         // Step 2: DELETE the group from the table
-        queryText = 'DELETE FROM groups WHERE id = $1;';
-        queryValues = [id];
-
-        await client.query(queryText, queryValues, () => {
+        try {
+            await client.query('DELETE FROM groups WHERE id = $1;', [id]);
             server_Log(`Successfully deleted group with ID: ${id}`);
             UPDATE_transactions(specific_api_key, req.method, req.originalUrl, true);
             return res.status(200).send(`Successfully deleted group with ID: ${id}`);
-        });
+        } catch (err) {
+            server_Log(`Failed to delete group ${id} — ${sanitizePgError(err)}`);
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+            return res.status(500).json({error: 'Database error occurred.'});
+        }
     }catch(err){
         server_Log(`Internal Server Error: An unexpected error occurred\n${err}`);
         return res.status(500).json({error: `Internal Server Error: An unexpected error occurred`});
@@ -1485,38 +1559,29 @@ app.get("/groups/:id", async (req, res) => {
         const id = req.params.id;
 
         // Step 1: Check if a group with ID: id is available. If id is available, get the group members
-        let groupMembers = await new Promise(function(resolve){
-            let queryText = 'SELECT * FROM groups WHERE id = $1;';
-            let queryValues = [id];
-
-            client.query(queryText, queryValues, (err, queryResult) => {
-                if(!queryResult.rows.length){
-                    server_Log(`Not Found: Group with ID: ${id} does not exist`);
-                    UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
-                    return res.status(404).json({error: `Not Found: Group with ID: ${id} does not exist`});
-                }
-                delete queryResult.rows[0].id;
-                resolve(queryResult.rows[0]);
-            });
-        });
+        const groupResult = await client.query('SELECT * FROM groups WHERE id = $1;', [id]);
+        if (!groupResult.rows.length) {
+            server_Log(`Not Found: Group with ID: ${id} does not exist`);
+            UPDATE_transactions(specific_api_key, req.method, req.originalUrl, false);
+            return res.status(404).json({error: `Not Found: Group with ID: ${id} does not exist`});
+        }
+        const groupMembers = groupResult.rows[0];
+        delete groupMembers.id;
 
         // Step 2: Get the most recent data from the group's members
-        let groupData = {};
-        let groupMembersKeys = Object.keys(groupMembers);
-        let groupMembersValues = Object.values(groupMembers);
-        for(let keyIndex = 0; keyIndex < groupMembersKeys.length; keyIndex++){
-            if(!groupMembers[groupMembersKeys[keyIndex]]){
-                // Skip if there are no ids
-                continue;
-            }
-            // Get the data from each of the ids
-            for(let valueIndex = 0; valueIndex < groupMembersValues[keyIndex].length; valueIndex++){
-                groupData[`${groupMembersKeys[keyIndex].replace("_ids", "")}_${groupMembersValues[keyIndex][valueIndex]}`] = await new Promise(function (resolve) {
-                    let queryText = format('SELECT * FROM %I ORDER BY timestamp DESC LIMIT 1;', `${groupMembersKeys[keyIndex].replace("_ids", "")}_${groupMembersValues[keyIndex][valueIndex]}`);
-                    client.query(queryText, (err, queryResult) => {
-                        resolve(queryResult.rows[0]);
-                    });
-                });
+        const groupData = {};
+        for (const [columnKey, ids] of Object.entries(groupMembers)) {
+            if (!ids) continue;
+            for (const deviceID of ids) {
+                const tableName = `${columnKey.replace("_ids", "")}_${deviceID}`;
+                const queryText = format('SELECT * FROM %I ORDER BY timestamp DESC LIMIT 1;', tableName);
+                try {
+                    const r = await client.query(queryText);
+                    groupData[tableName] = r.rows[0];
+                } catch (err) {
+                    server_Log(`Group fetch failed for ${tableName} — ${sanitizePgError(err)}`);
+                    groupData[tableName] = null;
+                }
             }
         }
 
@@ -1537,5 +1602,5 @@ app.get("/groups/:id", async (req, res) => {
 
 
 
-// Server hosted at port 80
-app.listen(process.env.HOST_PORT, () => console.log(`SSL IoT 1 Server Hosted at port ${process.env.HOST_PORT}`));
+const PORT = process.env.HOST_PORT || 3000;
+app.listen(PORT, () => console.log(`SSL IoT 1 Server Hosted at port ${PORT}`));

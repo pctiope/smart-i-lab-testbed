@@ -51,13 +51,16 @@ from zone5.dataset import (
     validation_folds_for_blind_split,
 )
 from zone5.feature_contract import (
+    CORE_FEATURE_MIN_PRESENT_FRACTIONS,
     FEATURE_COLUMNS,
     INPUT_CHANNEL_COUNT,
     LOOKBACK_ROWS_BY_MINUTES,
     MISSING_INDICATOR_COLUMNS,
+    MODEL_CONTRACT_VERSION,
     PACKAGE_ROOT,
     RAW_FEATURE_COLUMNS,
     SAMPLE_INTERVAL_SECONDS,
+    SEN55_FEATURE_COLUMNS,
     TARGET_COLUMN,
     TIME_FEATURE_COLUMNS,
     TIMESTAMP_COLUMN,
@@ -83,6 +86,8 @@ DEFAULT_N_TRIALS = 50
 DEFAULT_MAX_EPOCHS = 20
 DEFAULT_SEED = 42
 GRAD_CLIP_MAX_NORM = 1.0
+DEFAULT_SEN55_DROPOUT_PROBABILITY = 0.20
+SEN55_FEATURE_CHANNELS = [FEATURE_COLUMNS.index(col) for col in SEN55_FEATURE_COLUMNS if col in FEATURE_COLUMNS]
 
 
 def validate_cv_folds(value: int | str) -> int:
@@ -247,6 +252,31 @@ def make_loader(X: np.ndarray, y: np.ndarray, batch_size: int, shuffle: bool) ->
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=0)
 
 
+def _apply_sen55_dropout(
+    xb: torch.Tensor,
+    sen55_neutral_values: list[float] | tuple[float, ...] | None,
+    probability: float = DEFAULT_SEN55_DROPOUT_PROBABILITY,
+) -> torch.Tensor:
+    if not SEN55_FEATURE_CHANNELS or probability <= 0.0 or xb.numel() == 0:
+        return xb
+    if not sen55_neutral_values or len(sen55_neutral_values) != len(SEN55_FEATURE_CHANNELS):
+        neutral_values = [0.0 for _ in SEN55_FEATURE_CHANNELS]
+    else:
+        neutral_values = [float(value) for value in sen55_neutral_values]
+    drop_mask = torch.rand((xb.shape[0], 1, 1), device=xb.device) < float(probability)
+    if not bool(drop_mask.any()):
+        return xb
+    augmented = xb.clone()
+    neutral = torch.tensor(neutral_values, dtype=xb.dtype, device=xb.device).view(1, -1, 1)
+    replacement = neutral.expand(xb.shape[0], len(SEN55_FEATURE_CHANNELS), xb.shape[2])
+    augmented[:, SEN55_FEATURE_CHANNELS, :] = torch.where(
+        drop_mask,
+        replacement,
+        augmented[:, SEN55_FEATURE_CHANNELS, :],
+    )
+    return augmented
+
+
 def build_optimizer(params: dict[str, Any], model: nn.Module) -> torch.optim.Optimizer:
     return torch.optim.AdamW(
         model.parameters(),
@@ -319,6 +349,8 @@ def train_model(
     max_epochs: int,
     device: torch.device,
     trial: optuna.trial.Trial | None = None,
+    sen55_neutral_values: list[float] | tuple[float, ...] | None = None,
+    sen55_dropout_probability: float = DEFAULT_SEN55_DROPOUT_PROBABILITY,
 ) -> tuple[nn.Module, dict[str, list[float | int]], float]:
     train_loader = make_loader(
         split_windows["train"]["X"],
@@ -351,6 +383,11 @@ def train_model(
             xb = xb.to(device)
             yb = yb.to(device).float()
             optimizer.zero_grad(set_to_none=True)
+            xb = _apply_sen55_dropout(
+                xb,
+                sen55_neutral_values,
+                probability=sen55_dropout_probability,
+            )
             logits = model(xb)
             loss = criterion(logits, yb)
             loss.backward()
@@ -400,6 +437,8 @@ def train_model_fixed_epochs(
     pos_weight_value: float,
     epochs: int,
     device: torch.device,
+    sen55_neutral_values: list[float] | tuple[float, ...] | None = None,
+    sen55_dropout_probability: float = DEFAULT_SEN55_DROPOUT_PROBABILITY,
 ) -> tuple[nn.Module, dict[str, list[float | int]]]:
     train_loader = make_loader(
         train_windows["X"],
@@ -423,6 +462,11 @@ def train_model_fixed_epochs(
             xb = xb.to(device)
             yb = yb.to(device).float()
             optimizer.zero_grad(set_to_none=True)
+            xb = _apply_sen55_dropout(
+                xb,
+                sen55_neutral_values,
+                probability=sen55_dropout_probability,
+            )
             logits = model(xb)
             loss = criterion(logits, yb)
             loss.backward()
@@ -484,6 +528,7 @@ def _build_objective(
             max_epochs=max_epochs,
             device=device,
             trial=trial,
+            sen55_neutral_values=split_windows["train"].get("sen55_neutral_values"),
         )
         trial.set_user_attr("best_epoch", int(history["best_epoch"][0]) if history["best_epoch"] else 0)
         trial.set_user_attr("epochs_ran", len(history["epoch"]))
@@ -697,6 +742,7 @@ def _build_cv_objective(
                 max_epochs=max_epochs,
                 device=device,
                 trial=None,
+                sen55_neutral_values=split_windows["train"].get("sen55_neutral_values"),
             )
             val_scores = predict_scores(
                 model,
@@ -870,6 +916,7 @@ def train_zone_5_from_csv(
         pos_weight_value=pos_weight,
         device=device,
         epochs=final_training_epochs,
+        sen55_neutral_values=final_train_windows["train"].get("sen55_neutral_values"),
     )
 
     final_eval_splits = {
@@ -892,6 +939,7 @@ def train_zone_5_from_csv(
     checkpoint = {
         "model_state_dict": {key: value.detach().cpu() for key, value in final_model.state_dict().items()},
         "params": _json_safe(best_params),
+        "model_contract_version": MODEL_CONTRACT_VERSION,
         "feature_columns": FEATURE_COLUMNS,
         "target_column": TARGET_COLUMN,
         "lookback": best_lookback,
@@ -901,6 +949,9 @@ def train_zone_5_from_csv(
         "input_channels": INPUT_CHANNEL_COUNT,
         "feature_fill_values": final_fill_values,
         "missing_indicator_columns": MISSING_INDICATOR_COLUMNS,
+        "core_feature_min_present_fractions": CORE_FEATURE_MIN_PRESENT_FRACTIONS,
+        "sen55_optional": True,
+        "sen55_dropout_probability": DEFAULT_SEN55_DROPOUT_PROBABILITY,
         "source_data_path": portable_source_data_path,
         "source_data_format": source_data_format,
         "source_csv_path": portable_source_data_path if source_data_format == "csv" else None,
@@ -927,12 +978,15 @@ def train_zone_5_from_csv(
         "test_timestamps_in_cv_folds": int(len(test_timestamps.intersection(cv_timestamps))),
     }
     scaler_payload = {
+        "model_contract_version": MODEL_CONTRACT_VERSION,
         "feature_columns": FEATURE_COLUMNS,
         "raw_feature_columns": RAW_FEATURE_COLUMNS,
         "missing_indicator_columns": MISSING_INDICATOR_COLUMNS,
         "engineered_time_feature_columns": TIME_FEATURE_COLUMNS,
         "target_column": TARGET_COLUMN,
         "feature_fill_values": final_fill_values,
+        "core_feature_min_present_fractions": CORE_FEATURE_MIN_PRESENT_FRACTIONS,
+        "sen55_optional": True,
         "means": {col: final_scaler_stats[col]["mean"] for col in FEATURE_COLUMNS},
         "stds": {col: final_scaler_stats[col]["std"] for col in FEATURE_COLUMNS},
         "lookback": best_lookback,
@@ -953,6 +1007,7 @@ def train_zone_5_from_csv(
     }
 
     best_params_payload = {
+        "model_contract_version": MODEL_CONTRACT_VERSION,
         "zone": ZONE_NUM,
         "study_name": study.study_name,
         "best_trial_number": int(study.best_trial.number),
@@ -971,11 +1026,13 @@ def train_zone_5_from_csv(
         "cv_fold_metrics": cv_fold_metrics,
         "cv_pr_auc_std": study.best_trial.user_attrs.get("std_cv_pr_auc"),
         "params": _json_safe(best_params),
+        "sen55_dropout_probability": DEFAULT_SEN55_DROPOUT_PROBABILITY,
         "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
         "lookback_minutes": best_lookback_minutes,
         "lookback_rows": best_lookback,
     }
     metrics_payload = {
+        "model_contract_version": MODEL_CONTRACT_VERSION,
         "zone": ZONE_NUM,
         "threshold_free": True,
         "raw_probability_output": True,
@@ -994,6 +1051,9 @@ def train_zone_5_from_csv(
         "cv_folds_requested": int(requested_cv_folds),
         "cv_folds_used": int(split_policy.get("cv_folds_used", len(cv_folds))),
         "min_strict_date_coverage": float(min_strict_date_coverage),
+        "core_feature_min_present_fractions": CORE_FEATURE_MIN_PRESENT_FRACTIONS,
+        "sen55_optional": True,
+        "sen55_dropout_probability": DEFAULT_SEN55_DROPOUT_PROBABILITY,
         "cv_metrics": {
             "best_mean_pr_auc": float(study.best_value),
             "best_std_pr_auc": study.best_trial.user_attrs.get("std_cv_pr_auc"),
@@ -1034,6 +1094,7 @@ def train_zone_5_from_csv(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "git_rev": _detect_git_rev(SCRIPT_DIR),
         "zone": ZONE_NUM,
+        "model_contract_version": MODEL_CONTRACT_VERSION,
         "feature_columns": FEATURE_COLUMNS,
         "raw_feature_columns": RAW_FEATURE_COLUMNS,
         "missing_indicator_columns": MISSING_INDICATOR_COLUMNS,
@@ -1051,6 +1112,9 @@ def train_zone_5_from_csv(
         "cv_folds_used": int(split_policy.get("cv_folds_used", len(cv_folds))),
         "min_strict_date_coverage": float(min_strict_date_coverage),
         "final_training_epochs": int(final_training_epochs),
+        "core_feature_min_present_fractions": CORE_FEATURE_MIN_PRESENT_FRACTIONS,
+        "sen55_optional": True,
+        "sen55_dropout_probability": DEFAULT_SEN55_DROPOUT_PROBABILITY,
         "split_policy": metrics_payload["split_policy"],
         "files": [
             {

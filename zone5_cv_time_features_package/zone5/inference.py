@@ -9,8 +9,11 @@ import numpy as np
 import pandas as pd
 import torch
 
-from zone5.dataset import apply_training_preprocessing
+from zone5.dataset import apply_training_preprocessing, live_feature_quality_diagnostics
 from zone5.feature_contract import (
+    FEATURE_COLUMNS,
+    MISSING_INDICATOR_COLUMNS,
+    MODEL_CONTRACT_VERSION,
     RAW_FEATURE_COLUMNS,
     SAMPLE_INTERVAL_SECONDS,
     TIMESTAMP_COLUMN,
@@ -85,6 +88,44 @@ def require_10_second_model_contract(
             "Retrain and promote a model with sample_interval_seconds=10."
         )
 
+    feature_columns = list(scaler_stats.get("feature_columns") or [])
+    legacy_missingness_channels = [
+        col
+        for col in feature_columns
+        if col in MISSING_INDICATOR_COLUMNS or str(col).endswith("_missing")
+    ]
+    if legacy_missingness_channels:
+        raise ValueError(
+            "model artifact uses legacy missingness feature channels; "
+            f"legacy_missingness_channels={legacy_missingness_channels}. "
+            "Retrain and promote a missingness-decoupled Zone 5 model."
+        )
+    if feature_columns != FEATURE_COLUMNS:
+        raise ValueError(
+            "model artifact feature contract does not match the current Zone 5 contract; "
+            f"expected_feature_columns={FEATURE_COLUMNS}, artifact_feature_columns={feature_columns}. "
+            "Retrain and promote a missingness-decoupled Zone 5 model."
+        )
+
+    contract_values = {"scaler_stats": scaler_stats.get("model_contract_version")}
+    if best_params_payload is not None:
+        contract_values["best_params"] = best_params_payload.get("model_contract_version")
+    if checkpoint is not None:
+        contract_values["checkpoint"] = checkpoint.get("model_contract_version")
+    missing_contract = [name for name, value in contract_values.items() if value is None]
+    bad_contract = {
+        name: value
+        for name, value in contract_values.items()
+        if value is not None and value != MODEL_CONTRACT_VERSION
+    }
+    if missing_contract or bad_contract:
+        raise ValueError(
+            "model artifact is not a missingness-decoupled Zone 5 model; "
+            f"expected_model_contract_version={MODEL_CONTRACT_VERSION!r}, "
+            f"missing_model_contract_version={missing_contract}, bad_model_contract_version={bad_contract}. "
+            "Retrain and promote a current model before live inference."
+        )
+
 
 def _latest_minutes_to_frame(
     latest_zone_5_minutes: pd.DataFrame | list[dict[str, Any]] | dict[str, Any],
@@ -111,7 +152,8 @@ def predict_zone_5_probability(
     max_gap_minutes: float = 5.0,
     max_age_minutes: float | None = 15.0,
     expected_cadence_seconds: float = float(SAMPLE_INTERVAL_SECONDS),
-) -> float:
+    return_diagnostics: bool = False,
+) -> float | tuple[float, dict[str, Any]]:
     scaler_stats, best_params_payload, checkpoint = _load_artifacts(artifact_dir)
     require_10_second_model_contract(scaler_stats, best_params_payload, checkpoint)
     feature_columns = list(scaler_stats["feature_columns"])
@@ -129,6 +171,19 @@ def predict_zone_5_probability(
     frame = frame.dropna(subset=[TIMESTAMP_COLUMN])
     frame = frame.sort_values(TIMESTAMP_COLUMN).drop_duplicates(TIMESTAMP_COLUMN, keep="last")
     frame = add_time_features(frame)
+
+    if len(frame) < lookback:
+        raise ValueError(f"Need at least {lookback} valid recent zone 5 rows; received {len(frame)}.")
+
+    raw_recent = frame.tail(lookback).copy()
+    diagnostics = live_feature_quality_diagnostics(raw_recent, lookback)
+    if diagnostics["core_failures"]:
+        detail = ", ".join(
+            f"{failure['feature']} present={failure['present_fraction']:.2f} "
+            f"required={failure['required_fraction']:.2f}"
+            for failure in diagnostics["core_failures"]
+        )
+        raise ValueError(f"LIVE DATA DEGRADED: core sensor coverage below gate ({detail})")
 
     fill_values = dict(
         scaler_stats.get("feature_fill_values")
@@ -197,4 +252,7 @@ def predict_zone_5_probability(
     with torch.inference_mode():
         logits = model(torch.from_numpy(X))
         probability = float(torch.sigmoid(logits).item())
-    return min(1.0, max(0.0, probability))
+    probability = min(1.0, max(0.0, probability))
+    if return_diagnostics:
+        return probability, diagnostics
+    return probability

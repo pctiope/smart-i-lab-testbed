@@ -315,15 +315,19 @@ async def video(request: Request) -> StreamingResponse:
     target_fps = float(getattr(request.app.state, "mjpeg_target_fps", DEFAULT_MJPEG_TARGET_FPS))
     boundary = "frame"
 
+    def next_chunk(iterator: Any) -> bytes | None:
+        try:
+            return next(iterator)
+        except StopIteration:
+            return None
+
     async def mjpeg_generator() -> AsyncIterator[bytes]:
         iterator = rtsp_grabber.mjpeg_iterator(target_fps=target_fps)
         while True:
-            try:
-                chunk = next(iterator)
-            except StopIteration:
+            chunk = await asyncio.to_thread(next_chunk, iterator)
+            if chunk is None:
                 break
             yield chunk
-            await asyncio.sleep(0)
 
     headers = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
     return StreamingResponse(

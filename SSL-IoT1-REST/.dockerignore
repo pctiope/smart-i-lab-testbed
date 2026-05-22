@@ -1,0 +1,12 @@
+node_modules
+npm-debug.log
+.npm
+.env
+.env.*
+.git
+.gitignore
+.dockerignore
+Dockerfile
+*.md
+oas_ssl_iot1.yaml
+SSL IoT-1.yaml

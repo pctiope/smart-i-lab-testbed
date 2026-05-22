@@ -72,7 +72,9 @@ The dashboard should show:
 - per-zone CV labels with nulls preserved when a zone has no current label.
 
 Use [DEPLOYMENT.md](DEPLOYMENT.md) for persistent Windows Task Scheduler and
-Ubuntu systemd commands. CI/CD examples are in
+Ubuntu systemd commands. [PIPELINE.md](PIPELINE.md) explains the all-zones
+collection, training, promotion, and missing-production-model troubleshooting
+flow. CI/CD examples are in
 [CICD_SYSTEMD.md](CICD_SYSTEMD.md) and
 [CICD_DOCKER_COMPOSE.md](CICD_DOCKER_COMPOSE.md).
 

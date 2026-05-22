@@ -15,6 +15,8 @@ The systemd services are:
 - `air1-all-zones-sen55-collector.service`
 - `air1-all-zones-live-collector.service`
 - `air1-all-zones-live-app.service`
+- `air1-all-zones-trainer.service`
+- `air1-all-zones-trainer.timer`
 
 The live app is expected to serve both cameras. Its health payload must include
 `rtsp_by_camera.cam1` and `rtsp_by_camera.cam2`; legacy `rtsp` is retained as a
@@ -84,12 +86,15 @@ PROMOTE_AFTER_RETRAIN=0
 
 The live collector only collects CSV rows and rebuilds the training Parquet by
 default. Scheduled training belongs to the separate
-`air1-all-zones-trainer.service` and optional
-`air1-all-zones-trainer.timer`; do not enable the timer automatically from CI.
+`air1-all-zones-trainer.service` and `air1-all-zones-trainer.timer`. Install
+the timer with the other user units. Once the server has viable labeled data,
+the timer is part of normal persistent operation; do not start a full training
+run on every deploy unless that is an intentional deployment policy.
 
-Create the service files from [DEPLOYMENT.md](DEPLOYMENT.md), then start them:
+Install the bundled service files, then start the runtime services:
 
 ```bash
+install -m 0644 systemd/user/air1-all-zones-*.service systemd/user/air1-all-zones-*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now air1-all-zones-person-counter-cam1.service
 systemctl --user enable --now air1-all-zones-person-counter-cam2.service
@@ -98,6 +103,13 @@ systemctl --user enable --now air1-all-zones-sen55-collector.service
 systemctl --user enable --now air1-all-zones-live-collector.service
 systemctl --user enable --now air1-all-zones-live-app.service
 curl -fsS http://127.0.0.1:8000/api/health
+```
+
+When the training CSV has viable labels and no other full trainer is active,
+enable the trainer timer:
+
+```bash
+systemctl --user enable --now air1-all-zones-trainer.timer
 ```
 
 After the first deploy, open the dashboard and confirm it shows separate cam1
@@ -187,6 +199,7 @@ jobs:
           cd ~/air1_all_zones_cv_time_features_package
           git pull --ff-only
           python3 -m pip install --target .python-packages --upgrade -r requirements.txt
+          install -m 0644 systemd/user/air1-all-zones-*.service systemd/user/air1-all-zones-*.timer ~/.config/systemd/user/
           systemctl --user daemon-reload
           systemctl --user restart air1-all-zones-person-counter-cam1.service
           systemctl --user restart air1-all-zones-person-counter-cam2.service
@@ -205,3 +218,12 @@ Deployment success only proves the service restarted and the health endpoint
 responded. It does not prove model readiness until `model/production_run.txt`
 exists, and it does not prove label readiness until `ground_truth_by_zone`
 contains current per-zone labels from both camera streams.
+
+Useful post-deploy checks on the server:
+
+```bash
+systemctl --user status air1-all-zones-trainer.timer
+systemctl --user status air1-all-zones-trainer.service
+tail -n 100 logs/air1_all_zones_trainer.log
+ls -lah model/runs model/current_run.txt model/production_run.txt model/retrain_status.json
+```

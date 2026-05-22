@@ -5,15 +5,15 @@ Wants=air1-all-zones-live-collector.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/air1_all_zones_cv_time_features_package
-EnvironmentFile=-%h/air1_all_zones_cv_time_features_package/web_app/.env
+WorkingDirectory=%h/smart-i-lab-testbed/air1_all_zones_cv_time_features_package
+EnvironmentFile=-%h/smart-i-lab-testbed/air1_all_zones_cv_time_features_package/web_app/.env
 Environment=PYTHON_BIN=python3
 Environment=PYTHONUNBUFFERED=1
 Environment=OMP_NUM_THREADS=1
 Environment=MKL_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=NUMEXPR_NUM_THREADS=1
-Environment=PYTHONPATH=%h/air1_all_zones_cv_time_features_package/.python-packages:%h/air1_all_zones_cv_time_features_package
+Environment=PYTHONPATH=%h/smart-i-lab-testbed/air1_all_zones_cv_time_features_package/.python-packages:%h/smart-i-lab-testbed/air1_all_zones_cv_time_features_package
 Environment=RETRAIN_N_TRIALS=50
 Environment=RETRAIN_MAX_EPOCHS=20
 Environment=RETRAIN_OPTUNA_JOBS=1
