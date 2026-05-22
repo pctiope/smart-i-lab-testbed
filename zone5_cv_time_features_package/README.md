@@ -322,6 +322,11 @@ poll interval. If the candidate is too weak or does not beat the current
 production model, promotion is skipped or failed in the log and data collection
 continues.
 
+Production CI/CD for split training and web-app servers is documented in
+`CICD_MODEL_DELIVERY.md`. Model weights stay out of git; CI/CD packages a
+promoted `model/runs/<run_id>/` artifact, validates it on the web app server,
+then flips that server's `model/production_run.txt` pointer.
+
 Useful checks for training and automatic promotion:
 
 ```powershell

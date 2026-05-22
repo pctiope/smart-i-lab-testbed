@@ -42,7 +42,7 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Compile Python modules
-        run: python -m compileall zone5 web_app smoke_test.py
+        run: python -m compileall zone5 web_app ci smoke_test.py
 
       - name: Run Zone 5 ground-truth tests
         run: PYTHONPATH=. python tests/test_cv_ground_truth.py

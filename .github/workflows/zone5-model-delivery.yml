@@ -1,0 +1,188 @@
+name: Zone 5 Model Delivery
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Zone 5 model run ID to promote on the web app server.
+        required: true
+        type: string
+      artifact_url:
+        description: HTTPS URL for the packaged model artifact tarball.
+        required: true
+        type: string
+      artifact_sha256:
+        description: Expected SHA-256 for the artifact tarball.
+        required: true
+        type: string
+      artifact_uri:
+        description: Optional sanitized artifact URI or registry label to record in git.
+        required: false
+        type: string
+      metadata_url:
+        description: Optional HTTPS URL for sanitized model metadata JSON.
+        required: false
+        type: string
+  repository_dispatch:
+    types: [zone5_model_promoted]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: zone5-model-delivery
+  cancel-in-progress: false
+
+jobs:
+  deliver:
+    name: Deliver promoted Zone 5 model
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      WEBAPP_SSH_HOST: ${{ secrets.WEBAPP_SSH_HOST || secrets.SSH_HOST }}
+      WEBAPP_SSH_USER: ${{ secrets.WEBAPP_SSH_USER || secrets.SSH_USER }}
+      WEBAPP_SSH_KEY: ${{ secrets.WEBAPP_SSH_KEY || secrets.SSH_KEY }}
+      WEBAPP_SSH_PORT: ${{ secrets.WEBAPP_SSH_PORT || secrets.SSH_PORT || '22' }}
+      WEBAPP_PKG_ROOT: ${{ vars.ZONE5_WEBAPP_PKG_ROOT }}
+      MODEL_REGISTRY_TOKEN: ${{ secrets.MODEL_REGISTRY_TOKEN }}
+      ZONE5_PRODUCTION_HEALTH_URL: ${{ vars.ZONE5_PRODUCTION_HEALTH_URL || 'http://192.168.10.17:8000/api/health' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve delivery payload
+        env:
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+          INPUT_ARTIFACT_URL: ${{ inputs.artifact_url }}
+          INPUT_ARTIFACT_SHA256: ${{ inputs.artifact_sha256 }}
+          INPUT_ARTIFACT_URI: ${{ inputs.artifact_uri }}
+          INPUT_METADATA_URL: ${{ inputs.metadata_url }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "repository_dispatch" ]; then
+            python3 - "$GITHUB_EVENT_PATH" >> "$GITHUB_ENV" <<'PY'
+          import json
+          import pathlib
+          import re
+          import sys
+
+          event = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          payload = event.get("client_payload") or {}
+          run_id = str(payload.get("run_id") or "")
+          artifact_url = str(payload.get("artifact_url") or "")
+          artifact_sha256 = str(payload.get("artifact_sha256") or "")
+          artifact_uri = str(payload.get("artifact_uri") or "")
+          metadata_url = str(payload.get("metadata_url") or "")
+          if not re.fullmatch(r"[A-Za-z0-9._-]+", run_id):
+              raise SystemExit("repository_dispatch payload has invalid run_id")
+          if not artifact_url:
+              raise SystemExit("repository_dispatch payload is missing artifact_url")
+          if not re.fullmatch(r"[A-Fa-f0-9]{64}", artifact_sha256):
+              raise SystemExit("repository_dispatch payload has invalid artifact_sha256")
+          for key, value in {
+              "RUN_ID": run_id,
+              "ARTIFACT_URL": artifact_url,
+              "ARTIFACT_SHA256": artifact_sha256.lower(),
+              "ARTIFACT_URI": artifact_uri,
+              "METADATA_URL": metadata_url,
+          }.items():
+              print(f"{key}={value}")
+          PY
+          else
+            python3 - "$INPUT_RUN_ID" "$INPUT_ARTIFACT_URL" "$INPUT_ARTIFACT_SHA256" "$INPUT_ARTIFACT_URI" "$INPUT_METADATA_URL" >> "$GITHUB_ENV" <<'PY'
+          import re
+          import sys
+
+          run_id, artifact_url, artifact_sha256, artifact_uri, metadata_url = sys.argv[1:6]
+          if not re.fullmatch(r"[A-Za-z0-9._-]+", run_id):
+              raise SystemExit("workflow_dispatch input has invalid run_id")
+          if not artifact_url:
+              raise SystemExit("workflow_dispatch input is missing artifact_url")
+          if not re.fullmatch(r"[A-Fa-f0-9]{64}", artifact_sha256):
+              raise SystemExit("workflow_dispatch input has invalid artifact_sha256")
+          for key, value in {
+              "RUN_ID": run_id,
+              "ARTIFACT_URL": artifact_url,
+              "ARTIFACT_SHA256": artifact_sha256.lower(),
+              "ARTIFACT_URI": artifact_uri,
+              "METADATA_URL": metadata_url,
+          }.items():
+              print(f"{key}={value}")
+          PY
+          fi
+
+      - name: Download model artifact
+        run: |
+          set -euo pipefail
+          artifact_path="$RUNNER_TEMP/zone5-model-$RUN_ID.tar.gz"
+          curl_args=(-fL --retry 3 --retry-delay 5)
+          if [ -n "${MODEL_REGISTRY_TOKEN:-}" ]; then
+            curl_args+=(-H "Authorization: Bearer ${MODEL_REGISTRY_TOKEN}")
+          fi
+          curl "${curl_args[@]}" "$ARTIFACT_URL" -o "$artifact_path"
+          actual_sha="$(sha256sum "$artifact_path" | awk '{print $1}')"
+          if [ "$actual_sha" != "$ARTIFACT_SHA256" ]; then
+            echo "Artifact checksum mismatch." >&2
+            exit 1
+          fi
+          echo "LOCAL_ARTIFACT_PATH=$artifact_path" >> "$GITHUB_ENV"
+
+      - name: Download optional metadata
+        run: |
+          set -euo pipefail
+          metadata_path="$RUNNER_TEMP/zone5-model-$RUN_ID.metadata.json"
+          if [ -n "${METADATA_URL:-}" ]; then
+            curl_args=(-fL --retry 3 --retry-delay 5)
+            if [ -n "${MODEL_REGISTRY_TOKEN:-}" ]; then
+              curl_args+=(-H "Authorization: Bearer ${MODEL_REGISTRY_TOKEN}")
+            fi
+            curl "${curl_args[@]}" "$METADATA_URL" -o "$metadata_path"
+          else
+            printf '{"schema_version":1,"run_id":"%s"}\n' "$RUN_ID" > "$metadata_path"
+          fi
+          echo "LOCAL_METADATA_PATH=$metadata_path" >> "$GITHUB_ENV"
+
+      - name: Configure web app SSH
+        run: |
+          set -euo pipefail
+          : "${WEBAPP_SSH_HOST:?WEBAPP_SSH_HOST or SSH_HOST secret is required}"
+          : "${WEBAPP_SSH_USER:?WEBAPP_SSH_USER or SSH_USER secret is required}"
+          : "${WEBAPP_SSH_KEY:?WEBAPP_SSH_KEY or SSH_KEY secret is required}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$WEBAPP_SSH_KEY" > ~/.ssh/zone5_webapp_key
+          chmod 600 ~/.ssh/zone5_webapp_key
+          ssh-keyscan -p "$WEBAPP_SSH_PORT" -H "$WEBAPP_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Install model on web app server
+        run: |
+          set -euo pipefail
+          remote_dir="/tmp/zone5-model-delivery-$GITHUB_RUN_ID"
+          ssh -i ~/.ssh/zone5_webapp_key -p "$WEBAPP_SSH_PORT" "$WEBAPP_SSH_USER@$WEBAPP_SSH_HOST" \
+            "install -m 700 -d '$remote_dir'"
+          scp -i ~/.ssh/zone5_webapp_key -P "$WEBAPP_SSH_PORT" \
+            zone5_cv_time_features_package/ci/install_zone5_model_artifact.sh \
+            "$LOCAL_ARTIFACT_PATH" \
+            "$WEBAPP_SSH_USER@$WEBAPP_SSH_HOST:$remote_dir/"
+          ssh -i ~/.ssh/zone5_webapp_key -p "$WEBAPP_SSH_PORT" "$WEBAPP_SSH_USER@$WEBAPP_SSH_HOST" \
+            "PKG_ROOT='${WEBAPP_PKG_ROOT:-}' RUN_ID='$RUN_ID' ARTIFACT_PATH='$remote_dir/$(basename "$LOCAL_ARTIFACT_PATH")' ARTIFACT_SHA256='$ARTIFACT_SHA256' HEALTH_URL='$ZONE5_PRODUCTION_HEALTH_URL' bash '$remote_dir/install_zone5_model_artifact.sh'"
+
+      - name: Record sanitized model metadata
+        run: |
+          set -euo pipefail
+          python3 zone5_cv_time_features_package/ci/write_zone5_model_registry.py \
+            --run-id "$RUN_ID" \
+            --artifact-sha256 "$ARTIFACT_SHA256" \
+            --artifact-uri "${ARTIFACT_URI:-external-artifact-registry}" \
+            --metadata-json "$LOCAL_METADATA_PATH" \
+            --output-dir zone5_cv_time_features_package/model_registry
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add zone5_cv_time_features_package/model_registry
+          if git diff --cached --quiet; then
+            echo "No model registry changes to commit."
+          else
+            git commit -m "Record Zone 5 model promotion $RUN_ID"
+            git push
+          fi
