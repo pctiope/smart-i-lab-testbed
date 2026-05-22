@@ -78,6 +78,85 @@ python3 migrations/apply.py
 For TLS termination in front of the REST API and Digital Twin, see
 [`TLS_SETUP.md`](TLS_SETUP.md).
 
+## Zone 5 Occupancy Monitor — Vite Frontend
+
+A browser-based live dashboard for the Zone 5 CNN-1D occupancy model, located at [zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/](zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/).
+
+### Stack
+
+| Tool | Role |
+|---|---|
+| [Vite 8](https://vitejs.dev/) | Dev server + production bundler |
+| [Tailwind CSS v4](https://tailwindcss.com/) | Utility-first styling via `@tailwindcss/vite` plugin |
+| [Plotly.js](https://plotly.com/javascript/) | Historical predictions, MSE, and sensor sparkline charts |
+
+### What the dashboard shows
+
+- **Occupancy probability** — live EMA-smoothed CNN-1D model output streamed via SSE (`/api/stream`), displayed as a large 4-decimal readout with OCCUPIED / VACANT / ELEVATED badges
+- **CV ground-truth panel** — person count and occupied/vacant label from the YOLO camera feed, used to validate model predictions in real time
+- **Historical predictions chart** — scrolling time-series of model probability overlaid on CV ground-truth occupancy bands (teal = occupied, red = unoccupied), polled every 10 s from `/api/history`
+- **MSE chart** — per-tick squared error between predicted probability and binary ground truth, with rolling average
+- **Environment conditions panel** — CO₂, temperature, humidity, VOC, PM2.5, NOx, and motion from four devices (AIR-1, MSR-2, Sensibo HVAC, AirGradient One), each with Plotly sparklines; collapsed by default
+- **Split-pane layout** — draggable resize handle between the YOLO video feed and the readout panel; width persisted in `localStorage`
+
+### Pre-requisites
+
+- Node.js 18+ and npm
+- Zone 5 Python backend running and reachable (provides `/api/stream`, `/api/history`, `/api/health`, `/api/video.mjpg`)
+- Smart I-Lab IoT REST API reachable (provides `/env-api/*` sensor readings)
+
+### Setup
+
+**1. Install dependencies**
+
+```bash
+cd zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5
+npm install
+```
+
+**2. Configure environment**
+
+Create a `.env` file in `smart-ilab-zone5/` (never committed — see `.gitignore`):
+
+```dotenv
+# API key injected into every proxied request as x-api-key
+VITE_API_KEY=your-api-key-here
+VITE_INFERENCE_API_URL=smart-ilab-inference-zone5-api-url
+VITE_ILAB_API_URL=your-ilab-api-url
+```
+
+The dev-server proxy targets are set in [vite.config.js](zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/vite.config.js):
+
+| Prefix | Forwarded to | Purpose |
+|---|---|---|
+| `/api` | `VITE_INFERENCE_API_URL` | Zone 5 occupancy backend |
+| `/env-api` | `VITE_ILAB_API_URL` | Smart I-Lab IoT REST API |
+
+Update these addresses in `vite.config.js` if your backend is on a different host.
+
+**3. Run the dev server**
+
+```bash
+npm run dev
+```
+
+The dashboard opens at `http://localhost:5173` by default.
+
+**4. Production build**
+
+```bash
+npm run build   # outputs to dist/
+npm run preview # serves dist/ locally for a final check
+```
+
+The build is configured with manual chunk splitting so Plotly ships as a separate chunk and the Rollup 5 MB warning is not triggered.
+
+### Proxy and API key
+
+All requests that begin with `/api` or `/env-api` are forwarded by the Vite dev server. The `x-api-key` header is injected automatically from `VITE_API_KEY` on every proxied request — you do not need to handle it in the frontend code.
+
+---
+
 ## Limitations
 *To add: Customizability issues particularly in naming or structures and possible errors to look out for due to lack of complete error catching, limitations set by the developers of the tools used, etc* 
 ### Database

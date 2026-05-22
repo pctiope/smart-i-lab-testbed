@@ -52,9 +52,9 @@ def main():
     cur.execute("SELECT api_key, access_level FROM users WHERE user_name = %s;", (args.user,))
     row = cur.fetchone()
     if row:
-        api_key, access_level = row
+        _, access_level = row
         print(f"User '{args.user}' already exists (access_level={access_level}).")
-        print(f"API key: {api_key}")
+        print("API key is not printed for security. Retrieve it directly from the database if required.")
         return
 
     api_key = str(uuid.uuid4())
@@ -64,11 +64,7 @@ def main():
     )
 
     print(f"Created user '{args.user}' with access_level={args.access_level}.")
-    print()
-    print(f"  API key: {api_key}")
-    print()
-    print("Save this key -- the api_key column stores it in plaintext but you need")
-    print("DB access to read it back. Distribute via a secure channel; rotate periodically.")
+    print("API key is not printed for security. Retrieve it directly from the database if required.")
 
 
 if __name__ == "__main__":

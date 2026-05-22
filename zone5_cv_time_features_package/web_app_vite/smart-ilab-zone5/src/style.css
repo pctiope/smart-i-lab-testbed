@@ -1,0 +1,401 @@
+@import "tailwindcss";
+
+/* ── Material You (M3) colour tokens ─────────────────────────────────────
+   Dark scheme — vibrant teal-primary, amber-secondary, green-tertiary.
+   Generated from a teal seed (#00BFA5) with M3 colour algorithm.          */
+:root {
+    /* Primary — deep teal */
+    --md-sys-color-primary:                 #4DD9AC;
+    --md-sys-color-on-primary:              #003828;
+    --md-sys-color-primary-container:       #005140;
+    --md-sys-color-on-primary-container:    #70F7CA;
+
+    /* Secondary — amber */
+    --md-sys-color-secondary:               #FFBA4D;
+    --md-sys-color-on-secondary:            #432C00;
+    --md-sys-color-secondary-container:     #5F3F00;
+    --md-sys-color-on-secondary-container:  #FFD98B;
+
+    /* Tertiary — sage green */
+    --md-sys-color-tertiary:                #84D5A1;
+    --md-sys-color-on-tertiary:             #003921;
+    --md-sys-color-tertiary-container:      #005231;
+    --md-sys-color-on-tertiary-container:   #A0F2BC;
+
+    /* Error */
+    --md-sys-color-error:                   #FFB4AB;
+    --md-sys-color-on-error:                #690005;
+    --md-sys-color-error-container:         #93000A;
+    --md-sys-color-on-error-container:      #FFB4AB;
+    --md-sys-color-error-variant:           #ff4d3a;
+
+    /* Surface ramp */
+    --md-sys-color-surface:                 #0E1512;
+    --md-sys-color-on-surface:              #DEE4DF;
+    --md-sys-color-surface-variant:         #3F4944;
+    --md-sys-color-on-surface-variant:      #BEC9C2;
+    --md-sys-color-surface-container-lowest:#09100D;
+    --md-sys-color-surface-container-low:   #161D1A;
+    --md-sys-color-surface-container:       #1A2220;
+    --md-sys-color-surface-container-high:  #252E2B;
+    --md-sys-color-surface-container-highest:#303935;
+
+    /* Outline */
+    --md-sys-color-outline:                 #889490;
+    --md-sys-color-outline-variant:         #3F4944;
+
+    /* Inverse */
+    --md-sys-color-inverse-surface:         #DEE4DF;
+    --md-sys-color-inverse-on-surface:      #2B322F;
+    --md-sys-color-inverse-primary:         #00695C;
+}
+
+/* ── Base typography ──────────────────────────────────────────────────── */
+html, body { height: 100%; }
+
+body {
+    font-family: "Google Sans", "Roboto", system-ui, sans-serif;
+    font-feature-settings: "ss01", "zero";
+    letter-spacing: 0.01em;
+    overflow: hidden;
+    /* subtle background texture */
+    background:
+        radial-gradient(circle at 15% -5%, color-mix(in srgb,var(--md-sys-color-primary) 6%,transparent) 0%, transparent 55%),
+        radial-gradient(circle at 95% 110%, color-mix(in srgb,var(--md-sys-color-secondary) 4%,transparent) 0%, transparent 50%),
+        var(--md-sys-color-surface);
+}
+
+/* Monospace helper */
+.font-mono { font-family: "Google Sans Mono", "JetBrains Mono", ui-monospace, monospace; }
+.font-display { font-family: "Google Sans", "Roboto", system-ui, sans-serif; }
+
+/* Engineering grid overlay */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+        linear-gradient(to right, color-mix(in srgb,var(--md-sys-color-primary) 4%,transparent) 1px, transparent 1px),
+        linear-gradient(to bottom, color-mix(in srgb,var(--md-sys-color-primary) 4%,transparent) 1px, transparent 1px);
+    background-size: 56px 56px;
+    pointer-events: none;
+    z-index: 0;
+    mix-blend-mode: screen;
+}
+
+/* ── Boot overlay ─────────────────────────────────────────────────────── */
+.boot-overlay {
+    animation: bootFade 1.6s ease-out 0.2s forwards;
+}
+.boot-line {
+    animation: bootType 0.4s ease-out forwards;
+}
+.boot-line:nth-child(1) { animation-delay: 0.10s; }
+.boot-line:nth-child(2) { animation-delay: 0.35s; }
+.boot-line:nth-child(3) { animation-delay: 0.60s; }
+.boot-line:nth-child(4) { animation-delay: 0.85s; }
+
+@keyframes bootType  { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:translateY(0); } }
+@keyframes bootFade  { to   { opacity:0; visibility:hidden; } }
+
+/* ── Reveal animations ────────────────────────────────────────────────── */
+[data-reveal] {
+    opacity: 0;
+    transform: translateY(6px);
+    animation: revealIn 0.6s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+}
+[data-reveal="0"] { animation-delay: 1.05s; }
+[data-reveal="1"] { animation-delay: 1.20s; }
+[data-reveal="2"] { animation-delay: 1.35s; }
+[data-reveal="3"] { animation-delay: 1.50s; }
+[data-reveal="4"] { animation-delay: 1.65s; }
+
+@keyframes revealIn { to { opacity:1; transform:translateY(0); } }
+
+/* ── Status dot ───────────────────────────────────────────────────────── */
+.status-dot { transition: background 0.3s; }
+.status-dot.connected {
+    background: var(--md-sys-color-tertiary) !important;
+    box-shadow: 0 0 8px color-mix(in srgb,var(--md-sys-color-tertiary) 70%,transparent);
+}
+.status-dot.disconnected {
+    background: var(--md-sys-color-error) !important;
+    box-shadow: 0 0 8px color-mix(in srgb,var(--md-sys-color-error) 70%,transparent);
+    animation: pulseAlarm 1.6s ease-in-out infinite;
+}
+.status-dot.pending {
+    background: var(--md-sys-color-secondary) !important;
+    animation: pulseStandby 2.2s ease-in-out infinite;
+}
+@keyframes pulseStandby { 0%,100% { opacity:.5; } 50% { opacity:1; } }
+@keyframes pulseAlarm   { 0%,100% { opacity:.6; } 50% { opacity:1; } }
+
+/* ── Rail chip cards ──────────────────────────────────────────────────── */
+.chip-card {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0.5rem 0.75rem;
+    border-radius: 12px;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-left: 3px solid var(--md-sys-color-primary);
+    background: var(--md-sys-color-surface-container);
+}
+.chip-key {
+    color: var(--md-sys-color-outline);
+    font-family: "Google Sans Mono", monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+}
+.chip-val {
+    color: var(--md-sys-color-on-surface);
+    font-family: "Google Sans Mono", monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    font-weight: 500;
+}
+
+/* ── Scope / video frame ──────────────────────────────────────────────── */
+.scope-feed  { filter: contrast(1.05) saturate(0.92); }
+.scope-mask  {
+    opacity: 0.32;
+    mix-blend-mode: screen;
+    filter: sepia(1) saturate(4.5) hue-rotate(165deg) brightness(1.2);
+}
+.scope-mask[hidden] { display: none; }
+
+/* Corner bracket hover expand */
+.scope-frame:hover .bracket-tl,
+.scope-frame:hover .bracket-tr,
+.scope-frame:hover .bracket-bl,
+.scope-frame:hover .bracket-br {
+    width: 2.25rem;
+    height: 2.25rem;
+    transition: width 0.25s ease, height 0.25s ease;
+}
+
+/* Reticle crosshair */
+.reticle {
+    background:
+        linear-gradient(transparent calc(50% - 0.5px), color-mix(in srgb,var(--md-sys-color-primary) 45%,transparent) 50%, transparent calc(50% + 0.5px)),
+        linear-gradient(90deg, transparent calc(50% - 0.5px), color-mix(in srgb,var(--md-sys-color-primary) 45%,transparent) 50%, transparent calc(50% + 0.5px));
+    border: 1px solid color-mix(in srgb,var(--md-sys-color-primary) 18%,transparent);
+    mix-blend-mode: screen;
+}
+
+/* Scanlines */
+.scanlines {
+    background-image: repeating-linear-gradient(
+        180deg,
+        transparent 0, transparent 2px,
+        rgba(0,0,0,0.18) 3px, rgba(0,0,0,0.18) 3.5px
+    );
+    mix-blend-mode: multiply;
+    animation: scanDrift 6s linear infinite;
+}
+@keyframes scanDrift { from { background-position:0 0; } to { background-position:0 14px; } }
+
+/* REC dot blink */
+.rec-dot {
+    box-shadow: 0 0 10px color-mix(in srgb,var(--md-sys-color-error) 70%,transparent);
+    animation: recBlink 1.8s ease-in-out infinite;
+}
+@keyframes recBlink { 0%,100% { opacity:.35; } 50% { opacity:1; } }
+
+/* Mask state badge variants */
+.scope-mask-state[data-state="active"] {
+    color: var(--md-sys-color-tertiary) !important;
+    border-color: color-mix(in srgb,var(--md-sys-color-tertiary) 55%,transparent) !important;
+    background: color-mix(in srgb,var(--md-sys-color-tertiary) 10%,transparent) !important;
+}
+.scope-mask-state[data-state="missing"] {
+    color: var(--md-sys-color-secondary) !important;
+    border-color: color-mix(in srgb,var(--md-sys-color-secondary) 45%,transparent) !important;
+    background: color-mix(in srgb,var(--md-sys-color-secondary) 8%,transparent) !important;
+}
+
+/* ── Probability digits ───────────────────────────────────────────────── */
+.digits {
+    color: var(--md-sys-color-primary);
+    text-shadow:
+        0 0 28px color-mix(in srgb,var(--md-sys-color-primary) 40%,transparent),
+        0 0 8px  color-mix(in srgb,var(--md-sys-color-primary) 55%,transparent);
+    transition: color 0.4s ease;
+}
+.digits.alarm {
+    color: var(--md-sys-color-error) !important;
+    text-shadow:
+        0 0 28px color-mix(in srgb,var(--md-sys-color-error) 45%,transparent),
+        0 0 8px  color-mix(in srgb,var(--md-sys-color-error) 65%,transparent);
+}
+.digits.flash { animation: digitsBeat 0.45s ease-out; }
+@keyframes digitsBeat {
+    0%   { filter: brightness(1.5); }
+    50%  { transform: translateY(-1px); }
+    100% { filter: brightness(1); }
+}
+
+/* ── Occupied flag pill ───────────────────────────────────────────────── */
+.occupied-flag[data-state="vacant"] {
+    color: var(--md-sys-color-tertiary) !important;
+    background: color-mix(in srgb,var(--md-sys-color-tertiary) 12%,transparent) !important;
+    border-color: color-mix(in srgb,var(--md-sys-color-tertiary) 55%,transparent) !important;
+}
+.occupied-flag[data-state="occupied"] {
+    color: var(--md-sys-color-error) !important;
+    background: color-mix(in srgb,var(--md-sys-color-error) 12%,transparent) !important;
+    border-color: color-mix(in srgb,var(--md-sys-color-error) 55%,transparent) !important;
+}
+
+/* ── Ground truth flag ────────────────────────────────────────────────── */
+.truth-flag[data-state="vacant"] {
+    color: var(--md-sys-color-tertiary) !important;
+    background: color-mix(in srgb,var(--md-sys-color-tertiary) 10%,transparent) !important;
+    border-color: color-mix(in srgb,var(--md-sys-color-tertiary) 50%,transparent) !important;
+}
+.truth-flag[data-state="occupied"] {
+    color: var(--md-sys-color-error) !important;
+    background: color-mix(in srgb,var(--md-sys-color-error) 10%,transparent) !important;
+    border-color: color-mix(in srgb,var(--md-sys-color-error) 50%,transparent) !important;
+}
+
+/* ── Error band ───────────────────────────────────────────────────────── */
+.error-band:not([hidden]) { display: flex; align-items: baseline; }
+
+/* ── Footer ribbon lanes ──────────────────────────────────────────────── */
+.ribbon-lane {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0 1rem;
+    font-family: "Google Sans Mono", monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+.ribbon-key { color: var(--md-sys-color-outline); }
+.ribbon-val { color: var(--md-sys-color-on-surface); font-weight: 500; }
+
+/* ── Responsive: stack below md ──────────────────────────────────────── */
+@media (max-width: 767px) {
+    .console { overflow-y: auto; }
+    .rail    { width: 100%; border-right: none; border-bottom: 1px solid var(--md-sys-color-outline-variant); flex-direction: row; flex-wrap: wrap; gap: 0.75rem; }
+    .ribbon  { flex-wrap: wrap; height: auto; padding: 0.25rem 0; }
+    .ribbon-lane { padding: 0.2rem 0.75rem; }
+}
+
+/* ── Environment panel ────────────────────────────────────────────────── */
+#env-panel {
+    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity    0.25s ease,
+                padding    0.25s ease;
+    max-height: 1000px;
+    overflow: hidden;
+}
+#env-panel.env-collapsed {
+    max-height: 0;
+    opacity: 0;
+}
+
+/* Metric row inside a device card */
+.env-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.env-metric-key {
+    color: var(--md-sys-color-outline);
+    font-family: "Google Sans Mono", monospace;
+    font-size: 0.58rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+}
+.env-metric-val {
+    color: var(--md-sys-color-on-surface);
+    font-family: "Google Sans Mono", monospace;
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+.env-metric-unit {
+    color: var(--md-sys-color-outline);
+    font-family: "Google Sans Mono", monospace;
+    font-size: 0.58rem;
+}
+
+/* Presence indicator */
+.env-presence[data-state="true"] {
+    color: var(--md-sys-color-error);
+}
+.env-presence[data-state="false"] {
+    color: var(--md-sys-color-tertiary);
+}
+
+/* HVAC mode colours */
+.env-hvac-mode[data-mode="cool"] { color: #82d4f7; }
+.env-hvac-mode[data-mode="heat"] { color: var(--md-sys-color-secondary); }
+.env-hvac-mode[data-mode="off"]  { color: var(--md-sys-color-outline); }
+
+/* CO₂ quality colours */
+.env-co2-quality[data-level="good"]     { color: var(--md-sys-color-tertiary); }
+.env-co2-quality[data-level="moderate"] { color: var(--md-sys-color-secondary); }
+.env-co2-quality[data-level="poor"]     { color: var(--md-sys-color-error); }
+
+/* ── Sensor sparkline graphs ──────────────────────────────────────────── */
+.spark-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.spark-label {
+    color: var(--md-sys-color-outline);
+    font-family: "Google Sans Mono", monospace;
+    font-size: 0.58rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+}
+.spark-plot {
+    height: 56px;
+    width: 100%;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--md-sys-color-surface-container);
+}
+
+/* ── Split / resize handle ────────────────────────────────────────────── */
+.split-handle {
+    flex: none;
+    width: 6px;
+    cursor: col-resize;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    transition: background 0.2s;
+    position: relative;
+    z-index: 10;
+}
+.split-handle:hover,
+.split-handle.dragging {
+    background: color-mix(in srgb, var(--md-sys-color-primary) 15%, transparent);
+}
+.split-grip {
+    display: block;
+    width: 2px;
+    height: 40px;
+    border-radius: 2px;
+    background: var(--md-sys-color-outline-variant);
+    transition: background 0.2s, height 0.2s;
+}
+.split-handle:hover .split-grip,
+.split-handle.dragging .split-grip {
+    background: var(--md-sys-color-primary);
+    height: 56px;
+}
+
+/* ── Selection ────────────────────────────────────────────────────────── */
+::selection {
+    background: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+}
