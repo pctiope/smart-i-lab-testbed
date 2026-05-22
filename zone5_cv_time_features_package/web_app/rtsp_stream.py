@@ -220,13 +220,8 @@ class FileBackedMjpegGrabber:
     def mjpeg_iterator(self, target_fps: float = 10.0) -> Iterator[bytes]:
         boundary = b"--frame"
         delay = max(0.02, 1.0 / max(target_fps, 1.0))
-        last_sent_id: int = 0
         while not self._stop_event.is_set():
             jpeg = self.latest_jpeg() or self._placeholder_jpeg
-            if id(jpeg) == last_sent_id:
-                time.sleep(delay)
-                continue
-            last_sent_id = id(jpeg)
             header = (
                 boundary
                 + b"\r\nContent-Type: image/jpeg\r\nContent-Length: "

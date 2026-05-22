@@ -5,15 +5,15 @@ Wants=zone5-live-collector.service
 
 [Service]
 Type=simple
-WorkingDirectory=%h/zone5_cv_time_features_package
-EnvironmentFile=-%h/zone5_cv_time_features_package/web_app/.env
+WorkingDirectory=%h/smart-i-lab-testbed/zone5_cv_time_features_package
+EnvironmentFile=-%h/smart-i-lab-testbed/zone5_cv_time_features_package/web_app/.env
 Environment=HOST=127.0.0.1
 Environment=PORT=8000
 Environment=ZONE5_DATA_SOURCE=live
 Environment=ZONE5_PRODUCTION_POINTER=model/production_run.txt
 Environment=PYTHON_BIN=python3
 Environment=PYTHONUNBUFFERED=1
-Environment=PYTHONPATH=%h/zone5_cv_time_features_package/.python-packages:%h/zone5_cv_time_features_package
+Environment=PYTHONPATH=%h/smart-i-lab-testbed/zone5_cv_time_features_package/.python-packages:%h/smart-i-lab-testbed/zone5_cv_time_features_package
 ExecStart=/usr/bin/env bash -lc 'exec bash run_live_app.sh >> logs/live_app.log 2>&1'
 Restart=always
 RestartSec=10

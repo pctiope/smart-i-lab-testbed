@@ -15,6 +15,7 @@ from unittest import mock
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import torch
 
@@ -64,6 +65,67 @@ def fresh_test_dir(name: str) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     TEST_TEMP_ROOTS.append(root)
     return root
+
+
+def minimal_cnn_params(lookback: int = 3) -> dict[str, object]:
+    return {
+        "lookback": int(lookback),
+        "batch_size": 64,
+        "num_conv_blocks": 2,
+        "base_channels": 32,
+        "kernel_size": 3,
+        "late_kernel_size": 3,
+        "activation": "ReLU",
+        "normalization": "none",
+        "pooling_pattern": "after_block_2",
+        "global_pool": "avg",
+        "dense_units": 32,
+        "dropout": 0.0,
+    }
+
+
+def write_minimal_zone5_artifact(root: Path, lookback: int = 3) -> Path:
+    run_dir = root / "artifact"
+    (run_dir / "models").mkdir(parents=True)
+    (run_dir / "tables").mkdir(parents=True)
+    params = minimal_cnn_params(lookback)
+    torch.manual_seed(7)
+    model = training.TunableZoneOccupancyCNN(params=params, input_channels=len(training.FEATURE_COLUMNS))
+    scaler = {
+        "model_contract_version": training.MODEL_CONTRACT_VERSION,
+        "feature_columns": training.FEATURE_COLUMNS,
+        "raw_feature_columns": training.RAW_FEATURE_COLUMNS,
+        "missing_indicator_columns": training.MISSING_INDICATOR_COLUMNS,
+        "target_column": training.TARGET_COLUMN,
+        "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
+        "lookback": lookback,
+        "lookback_rows": lookback,
+        "lookback_minutes": lookback * training.SAMPLE_INTERVAL_SECONDS / 60.0,
+        "feature_fill_values": {col: 0.0 for col in training.RAW_FEATURE_COLUMNS},
+        "means": {col: 0.0 for col in training.FEATURE_COLUMNS},
+        "stds": {col: 1.0 for col in training.FEATURE_COLUMNS},
+    }
+    best_params = {
+        "model_contract_version": training.MODEL_CONTRACT_VERSION,
+        "params": params,
+        "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
+        "lookback": lookback,
+        "lookback_rows": lookback,
+    }
+    checkpoint = {
+        "model_contract_version": training.MODEL_CONTRACT_VERSION,
+        "model_state_dict": model.state_dict(),
+        "params": params,
+        "target_column": training.TARGET_COLUMN,
+        "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
+        "lookback": lookback,
+        "lookback_rows": lookback,
+        "feature_fill_values": {col: 0.0 for col in training.RAW_FEATURE_COLUMNS},
+    }
+    (run_dir / "tables" / "scaler_stats_zone_5.json").write_text(json.dumps(scaler), encoding="utf-8")
+    (run_dir / "tables" / "best_params_zone_5.json").write_text(json.dumps(best_params), encoding="utf-8")
+    torch.save(checkpoint, run_dir / "models" / "best_cnn_zone_5.pt")
+    return run_dir
 
 
 class OccupancyMqttAggregatorTests(unittest.TestCase):
@@ -331,17 +393,29 @@ class CvTrainingDataBuilderTests(unittest.TestCase):
 
 
 class TrainingPreprocessingTests(unittest.TestCase):
+    def _live_feature_frame(self, rows: int = 3, value: float = 1.0) -> pd.DataFrame:
+        records = []
+        for idx in range(rows):
+            row = {
+                "timestamp": pd.Timestamp("2026-05-06 10:00:00") + pd.Timedelta(seconds=10 * idx),
+            }
+            for col in training.RAW_FEATURE_COLUMNS:
+                row[col] = float(value)
+            records.append(row)
+        return pd.DataFrame(records)
+
     def _split_frame(self, days: int, rows_per_day: int = 4) -> pd.DataFrame:
         rows = []
         for day_idx in range(days):
             day = pd.Timestamp("2026-05-01") + pd.Timedelta(days=day_idx)
             for row_idx in range(rows_per_day):
-                rows.append(
-                    {
-                        "timestamp": day + pd.Timedelta(minutes=row_idx),
-                        "zone_occupied": float((day_idx + row_idx) % 2),
-                    }
-                )
+                row = {
+                    "timestamp": day + pd.Timedelta(minutes=row_idx),
+                    "zone_occupied": float((day_idx + row_idx) % 2),
+                }
+                for col in training.RAW_FEATURE_COLUMNS:
+                    row[col] = float(row_idx + 1)
+                rows.append(row)
         return pd.DataFrame(rows)
 
     def _three_day_bootstrap_frame(self, bootstrap_train_single_class: bool = False) -> pd.DataFrame:
@@ -358,12 +432,13 @@ class TrainingPreprocessingTests(unittest.TestCase):
                     label = 1.0 if row_idx % 2 == 0 else 0.0
                 else:
                     label = float(row_idx % 2)
-                rows.append(
-                    {
-                        "timestamp": day + pd.Timedelta(seconds=10 * row_idx),
-                        "zone_occupied": label,
-                    }
-                )
+                row = {
+                    "timestamp": day + pd.Timedelta(seconds=10 * row_idx),
+                    "zone_occupied": label,
+                }
+                for col in training.RAW_FEATURE_COLUMNS:
+                    row[col] = float((row_idx % 10) + 1)
+                rows.append(row)
         return pd.DataFrame(rows)
 
     def _five_day_progressive_frame(self) -> pd.DataFrame:
@@ -373,12 +448,13 @@ class TrainingPreprocessingTests(unittest.TestCase):
             day = pd.Timestamp("2026-05-06") + pd.Timedelta(days=day_idx)
             for row_idx in range(rows_per_day):
                 label = 0.0 if day_idx == 0 else float(row_idx % 2)
-                rows.append(
-                    {
-                        "timestamp": day + pd.Timedelta(seconds=10 * row_idx),
-                        "zone_occupied": label,
-                    }
-                )
+                row = {
+                    "timestamp": day + pd.Timedelta(seconds=10 * row_idx),
+                    "zone_occupied": label,
+                }
+                for col in training.RAW_FEATURE_COLUMNS:
+                    row[col] = float((row_idx % 10) + 1)
+                rows.append(row)
         return pd.DataFrame(rows)
 
     def test_blind_split_holds_out_latest_calendar_day_only(self) -> None:
@@ -437,12 +513,13 @@ class TrainingPreprocessingTests(unittest.TestCase):
         for day_idx, rows_per_day in enumerate([100, 6480, 6480, 6480, 6480]):
             day = pd.Timestamp("2026-05-01") + pd.Timedelta(days=day_idx)
             for row_idx in range(rows_per_day):
-                rows.append(
-                    {
-                        "timestamp": day + pd.Timedelta(seconds=10 * row_idx),
-                        training.TARGET_COLUMN: float(row_idx % 2),
-                    }
-                )
+                row = {
+                    "timestamp": day + pd.Timedelta(seconds=10 * row_idx),
+                    training.TARGET_COLUMN: float(row_idx % 2),
+                }
+                for col in training.RAW_FEATURE_COLUMNS:
+                    row[col] = float((row_idx % 10) + 1)
+                rows.append(row)
         frame = pd.DataFrame(rows)
 
         plan = training.select_cv_lookback_plan(frame, cv_folds=3, bootstrap_fallback=False)
@@ -602,23 +679,138 @@ class TrainingPreprocessingTests(unittest.TestCase):
                 row[col] = float(idx + 1)
             rows.append(row)
         rows[1]["sen55_voc"] = None
-        rows[2]["mmwave_s5"] = None
 
         cleaned = training._clean_zone_5_training_frame(pd.DataFrame(rows), "unit")
         self.assertEqual(len(cleaned), 4)
         self.assertEqual(int(cleaned.loc[1, "sen55_voc_missing"]), 1)
-        self.assertEqual(int(cleaned.loc[2, "mmwave_s5_missing"]), 1)
 
         splits = {"train": cleaned.iloc[:3].copy(), "val": cleaned.iloc[3:].copy()}
         scaled, _stats, fill_values = training.prepare_and_standardize_splits(splits)
         self.assertIn("sen55_voc", fill_values)
         self.assertFalse(scaled["train"][training.FEATURE_COLUMNS].isna().any().any())
-        self.assertIn("sen55_voc_missing", training.FEATURE_COLUMNS)
+        self.assertIn("sen55_voc_missing", training.MISSING_INDICATOR_COLUMNS)
+        self.assertNotIn("sen55_voc_missing", training.FEATURE_COLUMNS)
 
         X, y, ts = training.make_windows(scaled["train"], lookback=1)
         self.assertEqual(y.tolist(), [0.0, 1.0])
         self.assertEqual(len(ts), 2)
         self.assertFalse(pd.isna(X).any())
+
+    def test_feature_contract_keeps_raw_sensors_but_excludes_missingness_channels(self) -> None:
+        for col in [*training.RAW_FEATURE_COLUMNS, *training.TIME_FEATURE_COLUMNS]:
+            self.assertIn(col, training.FEATURE_COLUMNS)
+        self.assertFalse(any(col.endswith("_missing") for col in training.FEATURE_COLUMNS))
+        self.assertEqual(training.INPUT_CHANNEL_COUNT, len(training.FEATURE_COLUMNS))
+
+    def test_core_missingness_blocks_training_windows_but_sen55_missing_does_not(self) -> None:
+        rows = []
+        for idx in range(3):
+            row = {
+                "timestamp": pd.Timestamp("2026-05-06 10:00:00") + pd.Timedelta(seconds=10 * idx),
+                training.TARGET_COLUMN: float(idx % 2),
+            }
+            for col in training.RAW_FEATURE_COLUMNS:
+                row[col] = float(idx + 1)
+            rows.append(row)
+        frame = training._clean_zone_5_training_frame(pd.DataFrame(rows), "unit")
+
+        sen55_missing = frame.copy()
+        sen55_missing["sen55_voc"] = pd.NA
+        sen55_prepared = training.apply_training_preprocessing(
+            sen55_missing,
+            {col: 0.0 for col in training.RAW_FEATURE_COLUMNS},
+        )
+        self.assertEqual(training.make_windows(sen55_prepared, lookback=1)[1].tolist(), [0.0, 1.0, 0.0])
+
+        core_missing = frame.copy()
+        core_missing["mmwave_s5"] = pd.NA
+        core_prepared = training.apply_training_preprocessing(
+            core_missing,
+            {col: 0.0 for col in training.RAW_FEATURE_COLUMNS},
+        )
+        self.assertEqual(training.make_windows(core_prepared, lookback=1)[1].tolist(), [])
+
+    def test_missing_sen55_warns_but_does_not_block_live_prediction(self) -> None:
+        root = fresh_test_dir("sen55_live_optional")
+        run_dir = write_minimal_zone5_artifact(root, lookback=3)
+        frame = self._live_feature_frame(rows=3)
+        for col in training.SEN55_FEATURE_COLUMNS:
+            frame[col] = pd.NA
+
+        probability, diagnostics = training.predict_zone_5_probability(
+            frame,
+            artifact_dir=run_dir,
+            reference_time=frame[training.TIMESTAMP_COLUMN].iloc[-1],
+            max_age_minutes=None,
+            return_diagnostics=True,
+        )
+
+        self.assertTrue(np.isfinite(probability))
+        self.assertIn("SEN55 unavailable; using neutral fill", diagnostics["warnings"])
+
+    def test_missing_core_sensor_blocks_live_prediction(self) -> None:
+        root = fresh_test_dir("core_live_gate")
+        run_dir = write_minimal_zone5_artifact(root, lookback=3)
+        frame = self._live_feature_frame(rows=3)
+        frame["mmwave_s5"] = pd.NA
+
+        with self.assertRaisesRegex(ValueError, "LIVE DATA DEGRADED: .*mmwave_s5"):
+            training.predict_zone_5_probability(
+                frame,
+                artifact_dir=run_dir,
+                reference_time=frame[training.TIMESTAMP_COLUMN].iloc[-1],
+                max_age_minutes=None,
+            )
+
+    def test_legacy_missingness_channel_artifact_is_rejected(self) -> None:
+        legacy_feature_columns = [
+            *training.RAW_FEATURE_COLUMNS,
+            *training.MISSING_INDICATOR_COLUMNS,
+            *training.TIME_FEATURE_COLUMNS,
+        ]
+
+        with self.assertRaisesRegex(ValueError, "legacy missingness feature channels"):
+            training.require_10_second_model_contract(
+                {
+                    "model_contract_version": training.MODEL_CONTRACT_VERSION,
+                    "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
+                    "feature_columns": legacy_feature_columns,
+                },
+                {
+                    "model_contract_version": training.MODEL_CONTRACT_VERSION,
+                    "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
+                },
+                {
+                    "model_contract_version": training.MODEL_CONTRACT_VERSION,
+                    "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
+                },
+            )
+
+    def test_sen55_missingness_only_does_not_change_prediction_with_neutral_values(self) -> None:
+        root = fresh_test_dir("sen55_missingness_neutral")
+        run_dir = write_minimal_zone5_artifact(root, lookback=3)
+        available = self._live_feature_frame(rows=3, value=1.0)
+        for col in training.SEN55_FEATURE_COLUMNS:
+            available[col] = 0.0
+            available[f"{col}_missing"] = 0
+        missing = available.copy()
+        for col in training.SEN55_FEATURE_COLUMNS:
+            missing[f"{col}_missing"] = 1
+
+        prob_available = training.predict_zone_5_probability(
+            available,
+            artifact_dir=run_dir,
+            reference_time=available[training.TIMESTAMP_COLUMN].iloc[-1],
+            max_age_minutes=None,
+        )
+        prob_missing = training.predict_zone_5_probability(
+            missing,
+            artifact_dir=run_dir,
+            reference_time=missing[training.TIMESTAMP_COLUMN].iloc[-1],
+            max_age_minutes=None,
+        )
+
+        self.assertAlmostEqual(float(prob_available), float(prob_missing), places=7)
 
     def test_lookback_minutes_are_converted_to_ten_second_rows(self) -> None:
         self.assertEqual(training.LOOKBACK_ROWS_BY_MINUTES, {15: 90, 60: 360, 180: 1080})
@@ -1544,6 +1736,7 @@ class PackageAuditTests(unittest.TestCase):
             }
         }
         scaler = {
+            "model_contract_version": training.MODEL_CONTRACT_VERSION,
             "feature_columns": training.FEATURE_COLUMNS,
             "raw_feature_columns": training.RAW_FEATURE_COLUMNS,
             "missing_indicator_columns": training.MISSING_INDICATOR_COLUMNS,
@@ -1551,8 +1744,16 @@ class PackageAuditTests(unittest.TestCase):
             "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
             "lookback": 90,
         }
-        params = {"params": {"lookback": 90}, "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS}
-        checkpoint = {"target_column": training.TARGET_COLUMN, "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS}
+        params = {
+            "params": {"lookback": 90},
+            "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
+            "model_contract_version": training.MODEL_CONTRACT_VERSION,
+        }
+        checkpoint = {
+            "target_column": training.TARGET_COLUMN,
+            "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
+            "model_contract_version": training.MODEL_CONTRACT_VERSION,
+        }
         fixture = pd.DataFrame({"timestamp": [pd.Timestamp("2026-05-06 10:00:00")]})
         argv = [
             "smoke_test.py",
@@ -1702,6 +1903,27 @@ class PackageAuditTests(unittest.TestCase):
         self.assertIsNone(client)
         self.assertIn("continuing without MQTT publishing", output.getvalue())
 
+    def test_person_counter_mask_visualization_keeps_background_live(self) -> None:
+        package_root = Path(__file__).resolve().parents[1]
+        module_path = package_root / "cv_counter" / "rtsp_person_mask_tracker_new.py"
+        spec = importlib.util.spec_from_file_location("rtsp_person_mask_tracker_new_test", module_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        person_counter = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(person_counter)
+
+        mask = np.zeros((3, 3), dtype=np.uint8)
+        mask[1, 1] = 255
+        first_frame = np.full((3, 3, 3), 40, dtype=np.uint8)
+        second_frame = np.full((3, 3, 3), 200, dtype=np.uint8)
+
+        first_overlay = person_counter.make_dim_overlay(first_frame, mask, alpha=0.5)
+        second_overlay = person_counter.make_dim_overlay(second_frame, mask, alpha=0.5)
+
+        self.assertEqual(int(first_overlay[0, 0, 0]), 20)
+        self.assertEqual(int(second_overlay[0, 0, 0]), 100)
+        self.assertTrue(np.array_equal(second_overlay[1, 1], second_frame[1, 1]))
+
     def test_static_dashboard_labels_are_zone5(self) -> None:
         package_root = Path(__file__).resolve().parents[1]
         html = (package_root / "web_app" / "static" / "index.html").read_text(encoding="utf-8")
@@ -1766,6 +1988,7 @@ class PromotionContractTests(unittest.TestCase):
             "cv_folds_used": cv_folds_used,
         }
         metrics = {
+            "model_contract_version": training.MODEL_CONTRACT_VERSION,
             "metrics_by_split": {
                 "test": {
                     "pr_auc": pr_auc,
@@ -1798,6 +2021,7 @@ class PromotionContractTests(unittest.TestCase):
             "cv_folds_used": cv_folds_used,
         }
         scaler = {
+            "model_contract_version": training.MODEL_CONTRACT_VERSION,
             "target_column": target_column,
             "feature_columns": training.FEATURE_COLUMNS,
             "raw_feature_columns": training.RAW_FEATURE_COLUMNS,
@@ -1811,6 +2035,7 @@ class PromotionContractTests(unittest.TestCase):
             "lookback": 90,
         }
         best_params = {
+            "model_contract_version": training.MODEL_CONTRACT_VERSION,
             "params": {"lookback": 90},
             "best_mean_cv_pr_auc": 0.75,
             "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
@@ -1822,6 +2047,7 @@ class PromotionContractTests(unittest.TestCase):
         }
         manifest = {
             "run_id": run_id,
+            "model_contract_version": training.MODEL_CONTRACT_VERSION,
             "target_column": target_column,
             "feature_columns": training.FEATURE_COLUMNS,
             "raw_feature_columns": training.RAW_FEATURE_COLUMNS,
@@ -1842,6 +2068,7 @@ class PromotionContractTests(unittest.TestCase):
         (run_dir / training.RUN_MANIFEST_FILENAME).write_text(json.dumps(manifest), encoding="utf-8")
         torch.save(
             {
+                "model_contract_version": training.MODEL_CONTRACT_VERSION,
                 "target_column": target_column,
                 "params": best_params["params"],
                 "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
@@ -2183,6 +2410,7 @@ class PromotionContractTests(unittest.TestCase):
 
         scaler.update(
             {
+                "model_contract_version": training.MODEL_CONTRACT_VERSION,
                 "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
                 "lookback_minutes": 15,
                 "lookback_rows": 90,
@@ -2191,6 +2419,7 @@ class PromotionContractTests(unittest.TestCase):
         )
         best_params.update(
             {
+                "model_contract_version": training.MODEL_CONTRACT_VERSION,
                 "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
                 "lookback_minutes": 15,
                 "lookback_rows": 90,
@@ -2201,6 +2430,7 @@ class PromotionContractTests(unittest.TestCase):
         (run_dir / "tables" / "best_params_zone_5.json").write_text(json.dumps(best_params), encoding="utf-8")
         torch.save(
             {
+                "model_contract_version": training.MODEL_CONTRACT_VERSION,
                 "target_column": training.TARGET_COLUMN,
                 "params": best_params["params"],
                 "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,

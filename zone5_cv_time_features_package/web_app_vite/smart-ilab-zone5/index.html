@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ZONE 05 // OCCUPANCY MONITOR</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Mono:wght@400;500&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet">
+</head>
+<body class="h-full overflow-hidden bg-(--md-sys-color-surface) text-(--md-sys-color-on-surface) font-sans">
+
+    <!-- Boot overlay -->
+    <div class="boot-overlay fixed inset-0 z-50 bg-(--md-sys-color-surface) grid place-items-center pointer-events-none" id="boot-overlay" aria-hidden="true">
+        <div class="flex flex-col gap-2 text-(--md-sys-color-primary) font-mono text-sm tracking-widest">
+            <span class="boot-line opacity-0">&gt; INIT SENSOR INTERFACE</span>
+            <span class="boot-line opacity-0">&gt; LOADING ARTIFACTS</span>
+            <span class="boot-line opacity-0">&gt; ESTABLISH YOLO VIDEO STREAM</span>
+            <span class="boot-line opacity-0 text-(--md-sys-color-tertiary)">&gt; OK</span>
+        </div>
+    </div>
+
+    <!-- App shell -->
+    <div class="app-shell flex flex-col h-full">
+
+        <!-- ── Top App Bar ──────────────────────────────────────────── -->
+        <header class="top-bar flex-none flex items-center justify-between gap-4
+                        px-4 md:px-6 h-16
+                        bg-(--md-sys-color-surface-container)
+                        border-b border-(--md-sys-color-outline-variant)
+                        z-30" data-reveal="0">
+
+            <div class="flex items-center gap-3 min-w-0">
+                <span class="material-symbols-rounded text-(--md-sys-color-primary) text-2xl select-none">sensors</span>
+                <span class="font-display text-xl font-semibold tracking-wide text-(--md-sys-color-on-surface) truncate">
+                    Zone 05 Surveillance Occupancy Detection
+                </span>
+                <span class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5
+                              rounded-full text-xs font-medium tracking-wider
+                              bg-(--md-sys-color-primary-container) text-(--md-sys-color-on-primary-container)">
+                    OCCUPANCY · CNN-1D · LIVE
+                </span>
+            </div>
+
+            <div class="flex items-center gap-4 flex-wrap justify-end">
+                <!-- <div class="status-cluster hidden md:flex items-center gap-1.5">
+                    <span class="text-[10px] tracking-widest text-(--md-sys-color-outline) uppercase font-mono">MDL</span>
+                    <span class="text-xs font-mono text-(--md-sys-color-on-surface-variant) font-medium" id="model-run-id">—</span>
+                </div>
+                <div class="status-cluster hidden md:flex items-center gap-1.5">
+                    <span class="text-[10px] tracking-widest text-(--md-sys-color-outline) uppercase font-mono">SRC</span>
+                    <span class="text-xs font-mono text-(--md-sys-color-on-surface-variant) font-medium" id="data-source">—</span>
+                </div>
+                <div class="status-cluster flex items-center gap-1.5">
+                    <span class="text-[10px] tracking-widest text-(--md-sys-color-outline) uppercase font-mono">YOLO</span>
+                    <span class="status-dot w-2 h-2 rounded-full bg-(--md-sys-color-outline) pending" id="rtsp-status" aria-hidden="true"></span>
+                    <span class="text-xs font-mono text-(--md-sys-color-on-surface-variant) font-light hidden lg:inline" id="rtsp-url">—</span>
+                </div>-->
+                <div class="status-cluster flex items-center gap-1.5">
+                    <span class="material-symbols-rounded text-(--md-sys-color-outline) text-base select-none">schedule</span>
+                    <span class="text-xs font-mono text-(--md-sys-color-on-surface-variant) font-medium tabular-nums" id="utc-clock">--:--:--</span>
+                </div>
+            </div> 
+        </header>
+
+        <!-- ── Body (rail + content columns) ───────────────────────── -->
+        <main class="console flex-1 flex overflow-hidden min-h-0">
+
+            <!-- Content area (video + readout) -->
+            <div class="flex-1 flex flex-col md:flex-row overflow-hidden min-w-0 min-h-0" id="main-split">
+
+                <!-- Video / Scope pane -->
+                <section class="scope flex-1 flex flex-col min-w-0 min-h-0
+                                 border-b md:border-b-0 md:border-r
+                                 border-(--md-sys-color-outline-variant)
+                                 bg-(--md-sys-color-surface)
+                                 p-3" data-reveal="2">
+
+                    <div class="flex items-center gap-2 pb-3 mb-3
+                                 border-b border-dashed border-(--md-sys-color-outline-variant)
+                                 text-xs tracking-widest uppercase font-mono">
+                        <span class="text-(--md-sys-color-primary) font-bold">[ FEED.01 ]</span>
+                        <span class="text-(--md-sys-color-on-surface-variant) flex-1 truncate">Ground-Truth Optical // YOLO</span>
+                        <!-- <span class="scope-mask-state px-2 py-0.5 rounded-full border text-[10px]
+                                      border-(--md-sys-color-outline-variant)
+                                      text-(--md-sys-color-outline)
+                                      bg-(--md-sys-color-surface-container)"
+                              id="mask-state" data-state="pending">MASK --</span> -->
+                        <span class="flex items-center gap-1 text-(--md-sys-color-error) font-bold">
+                            <span class="rec-dot w-2.5 h-2.5 rounded-full bg-(--md-sys-color-error)" id="rec-dot" aria-hidden="true"></span>
+                            <span id="rec-status">STANDBY</span>
+                        </span>
+                    </div>
+
+                    <div class="scope-frame relative flex-1 min-h-0 rounded-xl overflow-hidden bg-black
+                                 ring-1 ring-(--md-sys-color-outline-variant)">
+                        <span class="bracket-tl absolute top-3 left-3 w-7 h-7 border-t-2 border-l-2 border-(--md-sys-color-primary) rounded-tl-sm pointer-events-none z-10" aria-hidden="true"></span>
+                        <span class="bracket-tr absolute top-3 right-3 w-7 h-7 border-t-2 border-r-2 border-(--md-sys-color-primary) rounded-tr-sm pointer-events-none z-10" aria-hidden="true"></span>
+                        <span class="bracket-bl absolute bottom-3 left-3 w-7 h-7 border-b-2 border-l-2 border-(--md-sys-color-primary) rounded-bl-sm pointer-events-none z-10" aria-hidden="true"></span>
+                        <span class="bracket-br absolute bottom-3 right-3 w-7 h-7 border-b-2 border-r-2 border-(--md-sys-color-primary) rounded-br-sm pointer-events-none z-10" aria-hidden="true"></span>
+                        <span class="reticle absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 rounded-full pointer-events-none z-10" aria-hidden="true"></span>
+                        <span class="scanlines absolute inset-0 pointer-events-none z-10 opacity-60" aria-hidden="true"></span>
+                        <img class="scope-feed w-full h-full object-contain block" id="rtsp-feed" src="/api/video.mjpg" alt="Live YOLO inference video">
+                        <img class="scope-mask absolute inset-0 w-full h-full object-contain pointer-events-none z-20" id="mask-overlay" alt="Zone 5 ROI mask overlay" hidden>
+                        <div class="absolute bottom-3.5 left-5 right-5 z-30 flex justify-between pointer-events-none
+                                     font-mono text-[11px] tracking-widest text-(--md-sys-color-primary) uppercase">
+                            <span class="overlay-band px-2 py-1 rounded-md backdrop-blur-sm bg-black/60">
+                                FRAME // <span id="overlay-rtsp-host">—</span>
+                            </span>
+                            <span class="overlay-band px-2 py-1 rounded-md backdrop-blur-sm bg-black/60">
+                                Ground-Truth Optical // YOLO <span id="overlay-fps">--</span>
+                            </span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Resize handle -->
+                <div id="split-handle" class="split-handle hidden md:flex" aria-hidden="true">
+                    <span class="split-grip"></span>
+                </div>
+
+                <!-- Readout / probability pane -->
+                <section class="readout flex flex-col min-w-0 min-h-0
+                                 w-full
+                                 bg-(--md-sys-color-surface-container-low)
+                                 p-3 gap-3 overflow-y-auto" id="readout-pane" data-reveal="3">
+
+                    <div class="flex items-center gap-2 pb-3
+                                 border-b border-dashed border-(--md-sys-color-outline-variant)
+                                 text-xs tracking-widest uppercase font-mono">
+                        <span class="text-(--md-sys-color-primary) font-bold">[ INFER.01 ]</span>
+                        <span class="text-(--md-sys-color-on-surface-variant) flex-1">Occupancy Model Confidence Level</span>
+                        <span class="threshold-tag px-2 py-0.5 rounded-full text-[10px] font-medium
+                                      bg-(--md-sys-color-error-container) text-(--md-sys-color-on-error-container)"
+                              id="threshold-tag" hidden>
+                            THR <span id="threshold-value">—</span>
+                        </span>
+                    </div>
+
+                    <div class="digits-row flex items-baseline gap-2 px-1 pb-3
+                                 border-b border-(--md-sys-color-outline-variant) relative">
+                        <span class="digits font-display font-bold leading-none text-(--md-sys-color-primary)"
+                              style="font-size:clamp(2.8rem,8vw,4.5rem)"
+                              id="digits">0.0000</span>
+                        <span class="text-(--md-sys-color-outline) font-mono text-base tracking-widest" id="digits-suffix">·</span>
+                        <span class="occupied-flag ml-auto px-3 py-1.5 rounded-2xl text-xs font-medium tracking-widest
+                                      border border-(--md-sys-color-outline-variant)
+                                      bg-(--md-sys-color-surface-container)
+                                      text-(--md-sys-color-on-surface-variant)"
+                              id="occupied-flag" data-state="idle">IDLE</span>
+                    </div>
+
+                    <div class="truth-panel flex items-center gap-2 px-3 py-2.5 rounded-xl
+                                 bg-(--md-sys-color-surface-container)
+                                 ring-1 ring-(--md-sys-color-outline-variant)
+                                 border-l-4 border-(--md-sys-color-tertiary)
+                                 font-mono text-xs">
+                        <span class="text-[10px] tracking-widest text-(--md-sys-color-outline) uppercase flex-none">CV GT</span>
+                        <span class="text-(--md-sys-color-on-surface) text-base font-bold w-8 text-right" id="ground-truth-count">--</span>
+                        <span class="truth-flag px-2 py-0.5 rounded-full text-[10px] font-medium
+                                      border border-(--md-sys-color-outline-variant) text-(--md-sys-color-on-surface-variant)"
+                              id="ground-truth-flag" data-state="idle">NO LABEL</span>
+                        <span class="ml-auto text-[10px] text-(--md-sys-color-outline) truncate text-right" id="ground-truth-meta">--</span>
+                    </div>
+
+                    <!-- [GRAPH-1 DISABLED] live EMA probability oscilloscope — superseded by HIST.01
+                    <div class="oscilloscope-wrap relative rounded-xl overflow-hidden
+                                 bg-(--md-sys-color-surface-container)
+                                 ring-1 ring-(--md-sys-color-outline-variant) p-1"
+                         style="height:220px;flex:none">
+                        <div class="w-full h-full" id="probability-plot"></div>
+                        <div class="absolute bottom-1.5 right-3 text-[10px] tracking-widest uppercase
+                                     text-(--md-sys-color-outline) font-mono pointer-events-none">
+                            T-MINUS · 240 SAMPLES
+                        </div>
+                    </div>
+                    -->
+
+                    <!-- Historical Predictions -->
+                    <div class="flex items-center gap-2 pt-1
+                                 text-xs tracking-widest uppercase font-mono">
+                        <span class="text-(--md-sys-color-tertiary) font-bold">[ HIST.01 ]</span>
+                        <span class="text-(--md-sys-color-on-surface-variant) flex-1">Historical Predictions</span>
+                        <span class="text-[10px] text-(--md-sys-color-outline) font-mono">updates every 10s</span>
+                    </div>
+
+                    <div class="oscilloscope-wrap relative rounded-xl overflow-hidden
+                                 bg-(--md-sys-color-surface-container)
+                                 ring-1 ring-(--md-sys-color-outline-variant) p-1 pb-4 flex flex-col gap-1"
+                         style="height:200px;flex:none">
+                        <div class="w-full h-full" id="history-plot"></div>
+                        <div class="absolute bottom-1.5 left-0 w-full text-center text-[10px] tracking-widest uppercase
+                                        text-(--md-sys-color-outline) font-mono pointer-events-none">
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg" class="inline-block">
+                                <rect width="10" height="10" fill="var(--md-sys-color-tertiary)"></rect>
+                            </svg> OCCUPIED
+                            <span class="mx-2"></span>
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg" class="inline-block">
+                                <rect width="10" height="10" fill="var(--md-sys-color-error-variant)"></rect>
+                            </svg> UNOCCUPIED
+                        </div>
+                    </div>
+
+                    <!-- MSE Chart -->
+                    <div class="flex items-center gap-2 pt-1
+                                 text-xs tracking-widest uppercase font-mono">
+                        <span class="text-(--md-sys-color-error) font-bold">[ MSE.01 ]</span>
+                        <span class="text-(--md-sys-color-on-surface-variant) flex-1">Prediction Error (MSE)</span>
+                        <span class="text-[10px] text-(--md-sys-color-outline) font-mono" id="mse-current">—</span>
+                    </div>
+
+                    <div class="oscilloscope-wrap relative rounded-xl overflow-hidden
+                                 bg-(--md-sys-color-surface-container)
+                                 ring-1 ring-(--md-sys-color-outline-variant) p-1"
+                         style="height:140px;flex:none">
+                        <div class="w-full h-full" id="mse-plot"></div>
+                    </div>
+
+                    <div class="error-band hidden rounded-xl px-3 py-2.5
+                                 bg-(--md-sys-color-error-container) text-(--md-sys-color-on-error-container)
+                                 text-xs font-mono tracking-wide"
+                         id="error-band">
+                        <span class="font-bold mr-2">ERR //</span>
+                        <span id="error-text"></span>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- ── Environment Conditions panel (collapsible) ───────────── -->
+        <div class="flex-none z-20" data-reveal="4">
+
+            <!-- Toggle bar -->
+            <div class="flex items-center justify-between px-4 py-2
+                         bg-(--md-sys-color-surface-container-high)
+                         border-t border-(--md-sys-color-outline-variant)">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-rounded text-(--md-sys-color-primary) text-lg select-none">monitoring</span>
+                    <span class="text-xs font-mono tracking-widest uppercase text-(--md-sys-color-on-surface-variant)">
+                        Zone Conditions · Table 5
+                    </span>
+                    <span class="hidden px-2 py-0.5 rounded-full text-[10px] font-medium
+                                  bg-(--md-sys-color-tertiary-container) text-(--md-sys-color-on-tertiary-container)"
+                          id="env-fresh-badge">LIVE</span>
+                </div>
+                <button id="env-toggle-btn"
+                        class="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium
+                               bg-(--md-sys-color-primary-container) text-(--md-sys-color-on-primary-container)
+                               hover:brightness-110 transition-all duration-200 cursor-pointer">
+                    <span class="material-symbols-rounded text-sm select-none" id="env-toggle-icon">expand_more</span>
+                    <span id="env-toggle-label">More Details</span>
+                </button>
+            </div>
+
+            <!-- Cards grid -->
+            <div id="env-panel" class="bg-(--md-sys-color-surface-container) env-collapsed border-t border-(--md-sys-color-outline-variant) overflow-hidden flex flex-col">
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 px-4 py-3">
+
+                <!-- AIR-1 -->
+                <div class="env-device-card rounded-xl p-3 flex flex-col gap-2 min-w-0
+                             bg-(--md-sys-color-surface-container-high)
+                             ring-1 ring-(--md-sys-color-outline-variant)">
+                    <div class="flex items-center gap-1.5">
+                        <span class="material-symbols-rounded text-(--md-sys-color-secondary) text-base select-none">air</span>
+                        <span class="text-[10px] font-mono tracking-widest uppercase text-(--md-sys-color-outline)">AIR-1 · T5</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <div class="env-metric"><span class="env-metric-key">CO₂</span><span class="env-metric-val" id="air1-co2">—</span><span class="env-metric-unit">ppm</span></div>
+                        <div class="env-metric"><span class="env-metric-key">Temp</span><span class="env-metric-val" id="air1-temp">—</span><span class="env-metric-unit">°C</span></div>
+                        <div class="env-metric"><span class="env-metric-key">Humid</span><span class="env-metric-val" id="air1-humidity">—</span><span class="env-metric-unit">%</span></div>
+                        <div class="env-metric"><span class="env-metric-key">VOC</span><span class="env-metric-val" id="air1-voc">—</span></div>
+                        <div class="env-metric"><span class="env-metric-key">PM2.5</span><span class="env-metric-val" id="air1-pm25">—</span><span class="env-metric-unit">µg</span></div>
+                        <div class="env-metric"><span class="env-metric-key">NOx</span><span class="env-metric-val" id="air1-nox">—</span></div>
+                    </div>
+                    <div class="spark-row">
+                        <span class="spark-label">CO₂</span>
+                        <div class="spark-plot" id="air1-graph-co2"></div>
+                    </div>
+                    <div class="spark-row">
+                        <span class="spark-label">Temp</span>
+                        <div class="spark-plot" id="air1-graph-temp"></div>
+                    </div>
+                    <span class="text-[9px] text-(--md-sys-color-outline) font-mono truncate" id="air1-ts">—</span>
+                </div>
+
+                <!-- MSR-2 -->
+                <div class="env-device-card rounded-xl p-3 flex flex-col gap-2 min-w-0
+                             bg-(--md-sys-color-surface-container-high)
+                             ring-1 ring-(--md-sys-color-outline-variant)">
+                    <div class="flex items-center gap-1.5">
+                        <span class="material-symbols-rounded text-(--md-sys-color-secondary) text-base select-none">radar</span>
+                        <span class="text-[10px] font-mono tracking-widest uppercase text-(--md-sys-color-outline)">MSR-2 · T5</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <div class="env-metric"><span class="env-metric-key">CO₂</span><span class="env-metric-val" id="msr2-co2">—</span><span class="env-metric-unit">ppm</span></div>
+                        <div class="env-metric"><span class="env-metric-key">Temp</span><span class="env-metric-val" id="msr2-temp">—</span><span class="env-metric-unit">°C</span></div>
+                        <div class="env-metric"><span class="env-metric-key">Light</span><span class="env-metric-val" id="msr2-light">—</span><span class="env-metric-unit">lx</span></div>
+                        <div class="env-metric"><span class="env-metric-key">UV</span><span class="env-metric-val" id="msr2-uv">—</span></div>
+                        <div class="env-metric col-span-2"><span class="env-metric-key">Motion</span><span class="env-metric-val env-presence" id="msr2-motion">—</span></div>
+                    </div>
+                    <div class="spark-row">
+                        <span class="spark-label">CO₂</span>
+                        <div class="spark-plot" id="msr2-graph-co2"></div>
+                    </div>
+                    <div class="spark-row">
+                        <span class="spark-label">Temp</span>
+                        <div class="spark-plot" id="msr2-graph-temp"></div>
+                    </div>
+                    <span class="text-[9px] text-(--md-sys-color-outline) font-mono truncate" id="msr2-ts">—</span>
+                </div>
+
+                <!-- Sensibo HVAC -->
+                <div class="env-device-card rounded-xl p-3 flex flex-col gap-2 min-w-0
+                             bg-(--md-sys-color-surface-container-high)
+                             ring-1 ring-(--md-sys-color-outline-variant)">
+                    <div class="flex items-center gap-1.5">
+                        <span class="material-symbols-rounded text-(--md-sys-color-secondary) text-base select-none">ac_unit</span>
+                        <span class="text-[10px] font-mono tracking-widest uppercase text-(--md-sys-color-outline)">HVAC · T5</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <div class="env-metric"><span class="env-metric-key">Room Temp</span><span class="env-metric-val" id="sensibo-temp">—</span><span class="env-metric-unit">°C</span></div>
+                        <div class="env-metric"><span class="env-metric-key">Humid</span><span class="env-metric-val" id="sensibo-humidity">—</span><span class="env-metric-unit">%</span></div>
+                        <div class="env-metric col-span-2"><span class="env-metric-key">Mode</span><span class="env-metric-val env-hvac-mode" id="sensibo-mode">—</span></div>
+                        <div class="env-metric col-span-2"><span class="env-metric-key">Set Point</span><span class="env-metric-val" id="sensibo-setpoint">—</span><span class="env-metric-unit">°C</span></div>
+                    </div>
+                    <div class="spark-row">
+                        <span class="spark-label">Temp</span>
+                        <div class="spark-plot" id="sensibo-graph-temp"></div>
+                    </div>
+                    <div class="spark-row">
+                        <span class="spark-label">Humid</span>
+                        <div class="spark-plot" id="sensibo-graph-humidity"></div>
+                    </div>
+                    <span class="text-[9px] text-(--md-sys-color-outline) font-mono truncate" id="sensibo-ts">—</span>
+                </div>
+
+                <!-- AirGradient One -->
+                <div class="env-device-card rounded-xl p-3 flex flex-col gap-2 min-w-0
+                             bg-(--md-sys-color-surface-container-high)
+                             ring-1 ring-(--md-sys-color-outline-variant)">
+                    <div class="flex items-center gap-1.5">
+                        <span class="material-symbols-rounded text-(--md-sys-color-secondary) text-base select-none">cloud</span>
+                        <span class="text-[10px] font-mono tracking-widest uppercase text-(--md-sys-color-outline)">AG-One</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                        <div class="env-metric"><span class="env-metric-key">CO₂</span><span class="env-metric-val" id="ag-co2">—</span><span class="env-metric-unit">ppm</span></div>
+                        <div class="env-metric"><span class="env-metric-key">Temp</span><span class="env-metric-val" id="ag-temp">—</span><span class="env-metric-unit">°C</span></div>
+                        <div class="env-metric"><span class="env-metric-key">Humid</span><span class="env-metric-val" id="ag-humidity">—</span><span class="env-metric-unit">%</span></div>
+                        <div class="env-metric"><span class="env-metric-key">VOC</span><span class="env-metric-val" id="ag-voc">—</span></div>
+                        <div class="env-metric"><span class="env-metric-key">PM2.5</span><span class="env-metric-val" id="ag-pm25">—</span><span class="env-metric-unit">µg</span></div>
+                        <div class="env-metric"><span class="env-metric-key">NOx</span><span class="env-metric-val" id="ag-nox">—</span></div>
+                    </div>
+                    <div class="spark-row">
+                        <span class="spark-label">CO₂</span>
+                        <div class="spark-plot" id="ag-graph-co2"></div>
+                    </div>
+                    <div class="spark-row">
+                        <span class="spark-label">Temp</span>
+                        <div class="spark-plot" id="ag-graph-temp"></div>
+                    </div>
+                    <span class="text-[9px] text-(--md-sys-color-outline) font-mono truncate" id="ag-ts">—</span>
+                </div>
+
+                <!-- Summary -->
+                <div class="env-device-card rounded-xl p-3 flex flex-col gap-2 min-w-0
+                             bg-(--md-sys-color-surface-container-high)
+                             ring-1 ring-(--md-sys-color-outline-variant)">
+                    <div class="flex items-center gap-1.5">
+                        <span class="material-symbols-rounded text-(--md-sys-color-primary) text-base select-none">bar_chart</span>
+                        <span class="text-[10px] font-mono tracking-widest uppercase text-(--md-sys-color-outline)">Summary</span>
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex flex-col">
+                            <span class="text-[10px] text-(--md-sys-color-outline) font-mono uppercase tracking-widest">Avg CO₂</span>
+                            <span class="text-2xl font-bold font-mono text-(--md-sys-color-on-surface)" id="summary-co2">—</span>
+                            <span class="text-[10px] text-(--md-sys-color-outline) font-mono">ppm</span>
+                        </div>
+                        <div class="flex flex-col">
+                            <span class="text-[10px] text-(--md-sys-color-outline) font-mono uppercase tracking-widest">Avg Temp</span>
+                            <span class="text-2xl font-bold font-mono text-(--md-sys-color-on-surface)" id="summary-temp">—</span>
+                            <span class="text-[10px] text-(--md-sys-color-outline) font-mono">°C</span>
+                        </div>
+                        <div class="env-metric">
+                            <span class="env-metric-key">CO₂ Quality</span>
+                            <span class="env-metric-val env-co2-quality" id="summary-co2-quality">—</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chip-card">
+                    <span class="chip-key">FPS</span>
+                    <span class="chip-val" id="rtsp-frame-age">—</span>
+                </div>
+                <div class="chip-card">
+                    <span class="chip-key">TICK</span>
+                    <span class="chip-val" id="last-tick-rel">—</span>
+                </div>
+                <div class="chip-card">
+                    <span class="chip-key">PTR</span>
+                    <span class="chip-val text-(--md-sys-color-outline) font-light text-[11px]" id="pointer-path">production_run.txt</span>
+                </div>
+                <div class="chip-card">
+                    <span class="chip-key">SAMPLES</span>
+                    <span class="chip-val" id="sample-count">0</span>
+                </div>
+
+                <!-- End Cards grid -->
+                </div>
+
+                <div class="flex flex-row px-4">
+                    <!-- ── Footer ribbon ────────────────────────────────────────── -->
+                    <footer class="ribbon flex-none flex w-full flex-wrap items-stretch h-11 md:h-10
+                                    bg-(--md-sys-color-surface-container)
+                                    border-t border-(--md-sys-color-outline-variant)
+                                    overflow-hidden z-20" data-reveal="5">
+                        <div class="ribbon-lane border-r border-(--md-sys-color-outline-variant)">
+                            <span class="ribbon-key">LATEST_TS</span>
+                            <span class="ribbon-val" id="latest-ts">—</span>
+                        </div>
+                        <div class="ribbon-lane border-r border-(--md-sys-color-outline-variant)">
+                            <span class="ribbon-key">REF_TIME</span>
+                            <span class="ribbon-val" id="reference-ts">—</span>
+                        </div>
+                        <div class="ribbon-lane border-r border-(--md-sys-color-outline-variant)">
+                            <span class="ribbon-key">MAX_GAP</span>
+                            <span class="ribbon-val" id="cfg-gap">—m</span>
+                        </div>
+                        <div class="ribbon-lane border-r border-(--md-sys-color-outline-variant)">
+                            <span class="ribbon-key">MAX_AGE</span>
+                            <span class="ribbon-val" id="cfg-age">—m</span>
+                        </div>
+                        <div class="ribbon-lane flex-1 min-w-0 overflow-hidden">
+                            <span class="ribbon-key">LOG</span>
+                            <span class="ribbon-val text-(--md-sys-color-outline) font-light truncate" id="ticker">awaiting telemetry…</span>
+                        </div>
+                    </footer>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+</html>
