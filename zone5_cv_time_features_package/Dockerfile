@@ -2,6 +2,8 @@
 
 FROM python:3.11-slim-bookworm
 
+ARG PYTORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -25,6 +27,7 @@ RUN apt-get update \
         libgl1 \
         libgomp1 \
     && python -m pip install --upgrade pip \
+    && python -m pip install --index-url "$PYTORCH_CPU_INDEX_URL" torch torchvision \
     && python -m pip install -r requirements.txt \
     && apt-get purge -y --auto-remove build-essential \
     && rm -rf /var/lib/apt/lists/*

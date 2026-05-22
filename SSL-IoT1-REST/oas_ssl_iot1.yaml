@@ -289,7 +289,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired red value for the LED light. Can be any number from 0-1.
@@ -297,7 +297,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired green value for the LED light. Can be any number from 0-1.
@@ -305,7 +305,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired blue value for the LED light. Can be any number from 0-1.
@@ -313,7 +313,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired brightness value for the LED light. Can be any number from 0-1.
@@ -506,7 +506,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired red value for the LED light. Can be any number from 0-1.
@@ -514,7 +514,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired green value for the LED light. Can be any number from 0-1.
@@ -522,7 +522,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired blue value for the LED light. Can be any number from 0-1.
@@ -530,7 +530,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired brightness value for the LED light. Can be any number from 0-1.
@@ -974,7 +974,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired red value for the LED strip. Can be any number from 0-1.
@@ -982,13 +982,13 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
           description: The desired green value for the LED strip. Can be any number from 0-1.
         - name: blue
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired blue value for the LED strip. Can be any number from 0-1.
@@ -996,7 +996,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 0
             maximum: 1
           description: The desired brightness value for the LED strip. Can be any number from 0-1.
@@ -1403,7 +1403,7 @@ paths:
           in: query
           required: false
           schema:
-            type: float
+            type: number
             minimum: 10
             maximum: 35
           description: The desired target temperature of the Sensibo Air Pro's HVAC. Can be any value from 10 to 35.

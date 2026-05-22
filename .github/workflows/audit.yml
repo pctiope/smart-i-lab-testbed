@@ -2,7 +2,7 @@ name: audit
 
 on:
   push:
-    branches: [main]
+    branches: [main, cicd/zone5-compose]
   pull_request:
   schedule:
     - cron: '0 6 * * 1'  # Monday 06:00 UTC
@@ -55,7 +55,37 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pip-audit
-      - run: pip-audit --requirement requirements.txt --strict
+      - run: pip-audit --requirement requirements.txt --strict --cache-dir /tmp/pip-audit-python-files-cache
+
+  npm-audit-zone5-vite:
+    name: npm audit (Zone 5 Vite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high --omit=dev
+
+  pip-audit-zone5:
+    name: pip-audit (Zone 5)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: zone5_cv_time_features_package
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pip-audit
+      - run: pip-audit --requirement requirements.txt --strict --cache-dir /tmp/pip-audit-zone5-cache
 
   oas-lint:
     name: OpenAPI lint

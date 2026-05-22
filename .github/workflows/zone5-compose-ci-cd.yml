@@ -1,0 +1,220 @@
+name: Zone 5 Compose CI/CD
+
+on:
+  push:
+    branches: [cicd/zone5-compose]
+    paths:
+      - .github/workflows/zone5-compose-ci-cd.yml
+      - zone5_cv_time_features_package/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zone5-compose-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: Validate Zone 5 Compose branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: zone5_cv_time_features_package
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: zone5_cv_time_features_package/requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          python -m pip install -r requirements.txt
+
+      - name: Compile Python modules
+        run: python -m compileall zone5 web_app ci smoke_test.py
+
+      - name: Run Zone 5 ground-truth tests
+        run: PYTHONPATH=. python tests/test_cv_ground_truth.py
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/package-lock.json
+
+      - name: Install Vite dependencies
+        working-directory: zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5
+        run: npm ci
+
+      - name: Build Vite frontend
+        working-directory: zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5
+        run: npm run build
+
+      - name: Verify checked-in user units
+        run: systemd-analyze verify systemd/user/*.service systemd/user/*.timer
+
+      - name: Create CI-only runtime env files
+        run: |
+          touch web_app/.env
+          touch web_app_vite/smart-ilab-zone5/.env
+
+      - name: Validate Docker Compose config
+        run: docker compose config --quiet
+
+      - name: Build Docker Compose images
+        run: docker compose build
+
+  deploy:
+    name: Deploy staging Compose stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: ci
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/cicd/zone5-compose'
+    env:
+      DEPLOY_BRANCH: cicd/zone5-compose
+      REPO_URL: https://github.com/${{ github.repository }}.git
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_KEY: ${{ secrets.SSH_KEY }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+
+    steps:
+      - name: Configure SSH
+        run: |
+          : "${SSH_HOST:?SSH_HOST secret is required}"
+          : "${SSH_USER:?SSH_USER secret is required}"
+          : "${SSH_KEY:?SSH_KEY secret is required}"
+          SSH_PORT="${SSH_PORT:-22}"
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/zone5_compose_key
+          chmod 600 ~/.ssh/zone5_compose_key
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy over SSH
+        run: |
+          SSH_PORT="${SSH_PORT:-22}"
+          ssh -i ~/.ssh/zone5_compose_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_BRANCH='$DEPLOY_BRANCH' REPO_URL='$REPO_URL' DEPLOY_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          DEPLOY_ROOT="${DEPLOY_ROOT:-$HOME/smart-i-lab-testbed-compose}"
+          PROD_ROOT="${PROD_ROOT:-$HOME/smart-i-lab-testbed/zone5_cv_time_features_package}"
+          PKG_ROOT="$DEPLOY_ROOT/zone5_cv_time_features_package"
+
+          if [ -e "$DEPLOY_ROOT" ] && [ ! -d "$DEPLOY_ROOT/.git" ]; then
+            echo "$DEPLOY_ROOT exists but is not a Git checkout; refusing to overwrite it." >&2
+            exit 1
+          fi
+
+          if [ ! -d "$DEPLOY_ROOT/.git" ]; then
+            git clone --branch "$DEPLOY_BRANCH" --single-branch "$REPO_URL" "$DEPLOY_ROOT"
+          fi
+
+          git -C "$DEPLOY_ROOT" remote set-url origin "$REPO_URL"
+          git -C "$DEPLOY_ROOT" fetch --prune origin "$DEPLOY_BRANCH"
+          git -C "$DEPLOY_ROOT" checkout -B "$DEPLOY_BRANCH" FETCH_HEAD
+
+          if [ -n "${DEPLOY_SHA:-}" ]; then
+            current_sha="$(git -C "$DEPLOY_ROOT" rev-parse HEAD)"
+            if [ "$current_sha" != "$DEPLOY_SHA" ]; then
+              echo "Deployed ref $current_sha does not match workflow SHA $DEPLOY_SHA." >&2
+              exit 1
+            fi
+          fi
+
+          install -d "$PKG_ROOT/data" "$PKG_ROOT/model" "$PKG_ROOT/logs"
+
+          umask 077
+          cat > "$PKG_ROOT/.env" <<EOF
+          ZONE5_UID=$(id -u)
+          ZONE5_GID=$(id -g)
+          ZONE5_APP_PORT=8005
+          ZONE5_VITE_PORT=8016
+          ZONE5_COMPOSE_PROJECT_NAME=zone5-compose
+          EOF
+
+          if [ ! -f "$PKG_ROOT/web_app/.env" ]; then
+            if [ ! -f "$PROD_ROOT/web_app/.env" ]; then
+              echo "Missing production backend env at $PROD_ROOT/web_app/.env." >&2
+              exit 1
+            fi
+            install -m 600 "$PROD_ROOT/web_app/.env" "$PKG_ROOT/web_app/.env"
+          fi
+
+          python3 - "$PROD_ROOT/web_app_vite/smart-ilab-zone5/.env" "$PROD_ROOT/web_app/.env" "$PKG_ROOT/web_app_vite/smart-ilab-zone5/.env" <<'PY'
+          import pathlib
+          import sys
+
+          prod_vite = pathlib.Path(sys.argv[1])
+          prod_backend = pathlib.Path(sys.argv[2])
+          stage_vite = pathlib.Path(sys.argv[3])
+
+          def read_env(path):
+              values = {}
+              if not path.exists():
+                  return values
+              for raw_line in path.read_text(encoding="utf-8").splitlines():
+                  line = raw_line.strip()
+                  if not line or line.startswith("#") or "=" not in line:
+                      continue
+                  key, value = line.split("=", 1)
+                  key = key.strip()
+                  value = value.strip().strip("'").strip('"')
+                  values[key] = value
+              return values
+
+          vite_values = read_env(prod_vite)
+          backend_values = read_env(prod_backend)
+          api_key = vite_values.get("VITE_API_KEY") or backend_values.get("AIR1_API_KEY")
+          ilab_url = vite_values.get("VITE_ILAB_API_URL")
+
+          missing = []
+          if not api_key:
+              missing.append("VITE_API_KEY")
+          if not ilab_url:
+              missing.append("VITE_ILAB_API_URL")
+          if missing:
+              joined = ", ".join(missing)
+              raise SystemExit(f"Missing production Vite env value(s): {joined}")
+
+          def quote(value):
+              return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+          stage_vite.parent.mkdir(parents=True, exist_ok=True)
+          tmp_path = stage_vite.with_suffix(stage_vite.suffix + ".tmp")
+          tmp_path.write_text(
+              "\n".join(
+                  [
+                      f"VITE_API_KEY={quote(api_key)}",
+                      'VITE_INFERENCE_API_URL="http://live-app:8000"',
+                      f"VITE_ILAB_API_URL={quote(ilab_url)}",
+                      "",
+                  ]
+              ),
+              encoding="utf-8",
+          )
+          tmp_path.chmod(0o600)
+          tmp_path.replace(stage_vite)
+          PY
+
+          cd "$PKG_ROOT"
+          docker compose config --quiet
+          docker compose up -d --build person-counter mqtt-aggregator sen55-collector live-collector live-app vite-frontend
+          docker compose ps
+          curl --noproxy '*' -fsS http://127.0.0.1:8005/api/health >/dev/null
+          curl --noproxy '*' -fsS http://127.0.0.1:8016/ >/dev/null
+          curl --noproxy '*' -fsS http://127.0.0.1:8016/api/health >/dev/null
+          REMOTE
