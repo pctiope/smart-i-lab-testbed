@@ -1,0 +1,15 @@
+[Unit]
+Description=Zone 5 Vite Frontend
+After=network-online.target zone5-live-app.service
+Wants=zone5-live-app.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/smart-i-lab-testbed/zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5
+EnvironmentFile=-%h/smart-i-lab-testbed/zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/.env
+ExecStart=/usr/bin/env bash -lc 'mkdir -p logs && exec npm run preview -- --host 0.0.0.0 --port 8015 >> logs/vite_frontend.log 2>&1'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
