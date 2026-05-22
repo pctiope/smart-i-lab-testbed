@@ -36,13 +36,10 @@ concurrency:
 jobs:
   deliver:
     name: Deliver promoted Zone 5 model
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, zone5, smart-ilab]
     timeout-minutes: 30
+    if: github.ref == 'refs/heads/main'
     env:
-      WEBAPP_SSH_HOST: ${{ secrets.WEBAPP_SSH_HOST || secrets.SSH_HOST }}
-      WEBAPP_SSH_USER: ${{ secrets.WEBAPP_SSH_USER || secrets.SSH_USER }}
-      WEBAPP_SSH_KEY: ${{ secrets.WEBAPP_SSH_KEY || secrets.SSH_KEY }}
-      WEBAPP_SSH_PORT: ${{ secrets.WEBAPP_SSH_PORT || secrets.SSH_PORT || '22' }}
       WEBAPP_PKG_ROOT: ${{ vars.ZONE5_WEBAPP_PKG_ROOT }}
       MODEL_REGISTRY_TOKEN: ${{ secrets.MODEL_REGISTRY_TOKEN }}
       ZONE5_PRODUCTION_HEALTH_URL: ${{ vars.ZONE5_PRODUCTION_HEALTH_URL || 'http://192.168.10.17:8000/api/health' }}
@@ -143,29 +140,21 @@ jobs:
           fi
           echo "LOCAL_METADATA_PATH=$metadata_path" >> "$GITHUB_ENV"
 
-      - name: Configure web app SSH
+      - name: Install model on local web app server
         run: |
           set -euo pipefail
-          : "${WEBAPP_SSH_HOST:?WEBAPP_SSH_HOST or SSH_HOST secret is required}"
-          : "${WEBAPP_SSH_USER:?WEBAPP_SSH_USER or SSH_USER secret is required}"
-          : "${WEBAPP_SSH_KEY:?WEBAPP_SSH_KEY or SSH_KEY secret is required}"
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$WEBAPP_SSH_KEY" > ~/.ssh/zone5_webapp_key
-          chmod 600 ~/.ssh/zone5_webapp_key
-          ssh-keyscan -p "$WEBAPP_SSH_PORT" -H "$WEBAPP_SSH_HOST" >> ~/.ssh/known_hosts
-
-      - name: Install model on web app server
-        run: |
-          set -euo pipefail
-          remote_dir="/tmp/zone5-model-delivery-$GITHUB_RUN_ID"
-          ssh -i ~/.ssh/zone5_webapp_key -p "$WEBAPP_SSH_PORT" "$WEBAPP_SSH_USER@$WEBAPP_SSH_HOST" \
-            "install -m 700 -d '$remote_dir'"
-          scp -i ~/.ssh/zone5_webapp_key -P "$WEBAPP_SSH_PORT" \
-            zone5_cv_time_features_package/ci/install_zone5_model_artifact.sh \
-            "$LOCAL_ARTIFACT_PATH" \
-            "$WEBAPP_SSH_USER@$WEBAPP_SSH_HOST:$remote_dir/"
-          ssh -i ~/.ssh/zone5_webapp_key -p "$WEBAPP_SSH_PORT" "$WEBAPP_SSH_USER@$WEBAPP_SSH_HOST" \
-            "PKG_ROOT='${WEBAPP_PKG_ROOT:-}' RUN_ID='$RUN_ID' ARTIFACT_PATH='$remote_dir/$(basename "$LOCAL_ARTIFACT_PATH")' ARTIFACT_SHA256='$ARTIFACT_SHA256' HEALTH_URL='$ZONE5_PRODUCTION_HEALTH_URL' bash '$remote_dir/install_zone5_model_artifact.sh'"
+          helper="$GITHUB_WORKSPACE/zone5_cv_time_features_package/ci/install_zone5_model_artifact.sh"
+          pkg_root="${WEBAPP_PKG_ROOT:-$HOME/smart-i-lab-testbed/zone5_cv_time_features_package}"
+          if [ ! -x "$helper" ]; then
+            echo "Missing install helper: $helper" >&2
+            exit 1
+          fi
+          PKG_ROOT="$pkg_root" \
+            RUN_ID="$RUN_ID" \
+            ARTIFACT_PATH="$LOCAL_ARTIFACT_PATH" \
+            ARTIFACT_SHA256="$ARTIFACT_SHA256" \
+            HEALTH_URL="$ZONE5_PRODUCTION_HEALTH_URL" \
+            bash "$helper"
 
       - name: Record sanitized model metadata
         run: |

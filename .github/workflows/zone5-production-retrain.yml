@@ -2,8 +2,6 @@ name: Zone 5 Production Retrain
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 18 * * *" # 2 AM Asia/Manila
 
 permissions:
   contents: write
@@ -15,17 +13,10 @@ concurrency:
 jobs:
   retrain:
     name: Retrain and deliver promoted model
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, zone5, smart-ilab]
     timeout-minutes: 540
+    if: github.ref == 'refs/heads/main'
     env:
-      TRAINING_SSH_HOST: ${{ secrets.TRAINING_SSH_HOST || secrets.SSH_HOST }}
-      TRAINING_SSH_USER: ${{ secrets.TRAINING_SSH_USER || secrets.SSH_USER }}
-      TRAINING_SSH_KEY: ${{ secrets.TRAINING_SSH_KEY || secrets.SSH_KEY }}
-      TRAINING_SSH_PORT: ${{ secrets.TRAINING_SSH_PORT || secrets.SSH_PORT || '22' }}
-      WEBAPP_SSH_HOST: ${{ secrets.WEBAPP_SSH_HOST || secrets.SSH_HOST }}
-      WEBAPP_SSH_USER: ${{ secrets.WEBAPP_SSH_USER || secrets.SSH_USER }}
-      WEBAPP_SSH_KEY: ${{ secrets.WEBAPP_SSH_KEY || secrets.SSH_KEY }}
-      WEBAPP_SSH_PORT: ${{ secrets.WEBAPP_SSH_PORT || secrets.SSH_PORT || '22' }}
       TRAINING_PKG_ROOT: ${{ vars.ZONE5_TRAINING_PKG_ROOT }}
       WEBAPP_PKG_ROOT: ${{ vars.ZONE5_WEBAPP_PKG_ROOT }}
       TRAINING_TIMEOUT_MINUTES: ${{ vars.ZONE5_TRAINING_TIMEOUT_MINUTES || '480' }}
@@ -35,85 +26,56 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Configure SSH
-        run: |
-          set -euo pipefail
-          : "${TRAINING_SSH_HOST:?TRAINING_SSH_HOST or SSH_HOST secret is required}"
-          : "${TRAINING_SSH_USER:?TRAINING_SSH_USER or SSH_USER secret is required}"
-          : "${TRAINING_SSH_KEY:?TRAINING_SSH_KEY or SSH_KEY secret is required}"
-          : "${WEBAPP_SSH_HOST:?WEBAPP_SSH_HOST or SSH_HOST secret is required}"
-          : "${WEBAPP_SSH_USER:?WEBAPP_SSH_USER or SSH_USER secret is required}"
-          : "${WEBAPP_SSH_KEY:?WEBAPP_SSH_KEY or SSH_KEY secret is required}"
-
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$TRAINING_SSH_KEY" > ~/.ssh/zone5_training_key
-          printf '%s\n' "$WEBAPP_SSH_KEY" > ~/.ssh/zone5_webapp_key
-          chmod 600 ~/.ssh/zone5_training_key ~/.ssh/zone5_webapp_key
-          ssh-keyscan -p "$TRAINING_SSH_PORT" -H "$TRAINING_SSH_HOST" >> ~/.ssh/known_hosts
-          ssh-keyscan -p "$WEBAPP_SSH_PORT" -H "$WEBAPP_SSH_HOST" >> ~/.ssh/known_hosts
-
-      - name: Upload CI helpers
-        run: |
-          set -euo pipefail
-          training_remote_dir="/tmp/zone5-production-retrain-$GITHUB_RUN_ID"
-          web_remote_dir="/tmp/zone5-production-retrain-$GITHUB_RUN_ID"
-          echo "TRAINING_REMOTE_DIR=$training_remote_dir" >> "$GITHUB_ENV"
-          echo "WEB_REMOTE_DIR=$web_remote_dir" >> "$GITHUB_ENV"
-
-          ssh -i ~/.ssh/zone5_training_key -p "$TRAINING_SSH_PORT" "$TRAINING_SSH_USER@$TRAINING_SSH_HOST" \
-            "install -m 700 -d '$training_remote_dir'"
-          scp -i ~/.ssh/zone5_training_key -P "$TRAINING_SSH_PORT" \
-            zone5_cv_time_features_package/ci/package_zone5_model_artifact.sh \
-            "$TRAINING_SSH_USER@$TRAINING_SSH_HOST:$training_remote_dir/"
-
-          ssh -i ~/.ssh/zone5_webapp_key -p "$WEBAPP_SSH_PORT" "$WEBAPP_SSH_USER@$WEBAPP_SSH_HOST" \
-            "install -m 700 -d '$web_remote_dir'"
-          scp -i ~/.ssh/zone5_webapp_key -P "$WEBAPP_SSH_PORT" \
-            zone5_cv_time_features_package/ci/install_zone5_model_artifact.sh \
-            "$WEBAPP_SSH_USER@$WEBAPP_SSH_HOST:$web_remote_dir/"
-
       - name: Start production trainer and package promoted model
         id: retrain
         run: |
           set -euo pipefail
-          remote_env="$RUNNER_TEMP/zone5-training.env"
-          ssh -i ~/.ssh/zone5_training_key -p "$TRAINING_SSH_PORT" "$TRAINING_SSH_USER@$TRAINING_SSH_HOST" \
-            "TRAINING_PKG_ROOT='$TRAINING_PKG_ROOT' TRAINING_TIMEOUT_MINUTES='$TRAINING_TIMEOUT_MINUTES' TRAINING_REMOTE_DIR='$TRAINING_REMOTE_DIR' bash -s" > "$remote_env" <<'REMOTE'
-          set -euo pipefail
-          PKG_ROOT="${TRAINING_PKG_ROOT:-$HOME/smart-i-lab-testbed/zone5_cv_time_features_package}"
-          TIMEOUT_MINUTES="${TRAINING_TIMEOUT_MINUTES:-480}"
+          local_env="$RUNNER_TEMP/zone5-training.env"
+          helper="$GITHUB_WORKSPACE/zone5_cv_time_features_package/ci/package_zone5_model_artifact.sh"
+          pkg_root="${TRAINING_PKG_ROOT:-$HOME/smart-i-lab-testbed/zone5_cv_time_features_package}"
+          timeout_minutes="${TRAINING_TIMEOUT_MINUTES:-480}"
 
-          cd "$PKG_ROOT"
-          systemctl --user disable --now zone5-trainer.timer >/dev/null 2>&1 || true
-          systemctl --user reset-failed zone5-trainer.service >/dev/null 2>&1 || true
-          systemctl --user start zone5-trainer.service
+          if [ ! -x "$helper" ]; then
+            echo "Missing package helper: $helper" >&2
+            exit 1
+          fi
+          if [ ! -d "$pkg_root" ]; then
+            echo "Missing Zone 5 package root: $pkg_root" >&2
+            exit 1
+          fi
 
-          deadline=$((SECONDS + TIMEOUT_MINUTES * 60))
-          while true; do
-            active_state="$(systemctl --user show zone5-trainer.service -p ActiveState --value || true)"
-            result="$(systemctl --user show zone5-trainer.service -p Result --value || true)"
-            if [ "$active_state" = "inactive" ]; then
-              if [ "$result" = "success" ]; then
-                break
+          (
+            cd "$pkg_root"
+            systemctl --user disable --now zone5-trainer.timer >/dev/null 2>&1 || true
+            systemctl --user reset-failed zone5-trainer.service >/dev/null 2>&1 || true
+            systemctl --user start zone5-trainer.service
+
+            deadline=$((SECONDS + timeout_minutes * 60))
+            while true; do
+              active_state="$(systemctl --user show zone5-trainer.service -p ActiveState --value || true)"
+              result="$(systemctl --user show zone5-trainer.service -p Result --value || true)"
+              if [ "$active_state" = "inactive" ]; then
+                if [ "$result" = "success" ]; then
+                  break
+                fi
+                echo "zone5-trainer.service ended with Result=$result" >&2
+                tail -n 120 logs/zone5_trainer.log >&2 || true
+                exit 1
               fi
-              echo "zone5-trainer.service ended with Result=$result" >&2
-              tail -n 120 logs/zone5_trainer.log >&2 || true
-              exit 1
-            fi
-            if [ "$active_state" = "failed" ]; then
-              echo "zone5-trainer.service failed" >&2
-              tail -n 120 logs/zone5_trainer.log >&2 || true
-              exit 1
-            fi
-            if [ "$SECONDS" -ge "$deadline" ]; then
-              echo "Timed out waiting for zone5-trainer.service" >&2
-              tail -n 120 logs/zone5_trainer.log >&2 || true
-              exit 1
-            fi
-            sleep 30
-          done
+              if [ "$active_state" = "failed" ]; then
+                echo "zone5-trainer.service failed" >&2
+                tail -n 120 logs/zone5_trainer.log >&2 || true
+                exit 1
+              fi
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "Timed out waiting for zone5-trainer.service" >&2
+                tail -n 120 logs/zone5_trainer.log >&2 || true
+                exit 1
+              fi
+              sleep 30
+            done
 
-          python3 - <<'PY'
+            python3 - <<'PY'
           import json
           import pathlib
 
@@ -131,21 +93,21 @@ jobs:
               print(f"PROMOTION_CURRENT={current}")
           PY
 
-          promotion_status="$(python3 - <<'PY'
+            promotion_status="$(python3 - <<'PY'
           import json
           import pathlib
           summary = json.loads(pathlib.Path("model/retrain_status.json").read_text(encoding="utf-8"))
           print((summary.get("promotion") or {}).get("status") or "missing")
           PY
           )"
-          if [ "$promotion_status" != "promoted" ]; then
-            exit 0
-          fi
+            if [ "$promotion_status" != "promoted" ]; then
+              exit 0
+            fi
 
-          PKG_ROOT="$PKG_ROOT" bash "$TRAINING_REMOTE_DIR/package_zone5_model_artifact.sh"
-          REMOTE
+            PKG_ROOT="$pkg_root" bash "$helper"
+          ) > "$local_env"
 
-          cat "$remote_env"
+          cat "$local_env"
           while IFS='=' read -r key value; do
             case "$key" in
               RUN_ID)
@@ -177,28 +139,22 @@ jobs:
                 echo "metadata_path=$value" >> "$GITHUB_OUTPUT"
                 ;;
             esac
-          done < "$remote_env"
+          done < "$local_env"
 
-      - name: Download packaged model from training server
-        id: download_model
+      - name: Verify packaged model artifact
+        id: verify_model
         if: steps.retrain.outputs.promotion_status == 'promoted'
         run: |
           set -euo pipefail
-          local_artifact="$RUNNER_TEMP/zone5-model-$RUN_ID.tar.gz"
-          local_metadata="$RUNNER_TEMP/zone5-model-$RUN_ID.metadata.json"
-          scp -i ~/.ssh/zone5_training_key -P "$TRAINING_SSH_PORT" \
-            "$TRAINING_SSH_USER@$TRAINING_SSH_HOST:$ARTIFACT_PATH" "$local_artifact"
-          scp -i ~/.ssh/zone5_training_key -P "$TRAINING_SSH_PORT" \
-            "$TRAINING_SSH_USER@$TRAINING_SSH_HOST:$METADATA_PATH" "$local_metadata"
-          actual_sha="$(sha256sum "$local_artifact" | awk '{print $1}')"
+          actual_sha="$(sha256sum "$ARTIFACT_PATH" | awk '{print $1}')"
           if [ "$actual_sha" != "$ARTIFACT_SHA256" ]; then
-            echo "Downloaded artifact checksum mismatch." >&2
+            echo "Packaged artifact checksum mismatch." >&2
             exit 1
           fi
-          echo "LOCAL_ARTIFACT_PATH=$local_artifact" >> "$GITHUB_ENV"
-          echo "LOCAL_METADATA_PATH=$local_metadata" >> "$GITHUB_ENV"
-          echo "local_artifact_path=$local_artifact" >> "$GITHUB_OUTPUT"
-          echo "local_metadata_path=$local_metadata" >> "$GITHUB_OUTPUT"
+          echo "LOCAL_ARTIFACT_PATH=$ARTIFACT_PATH" >> "$GITHUB_ENV"
+          echo "LOCAL_METADATA_PATH=$METADATA_PATH" >> "$GITHUB_ENV"
+          echo "local_artifact_path=$ARTIFACT_PATH" >> "$GITHUB_OUTPUT"
+          echo "local_metadata_path=$METADATA_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload packaged model artifact to workflow run
         if: steps.retrain.outputs.promotion_status == 'promoted'
@@ -206,19 +162,26 @@ jobs:
         with:
           name: zone5-model-${{ steps.retrain.outputs.run_id }}
           path: |
-            ${{ steps.download_model.outputs.local_artifact_path }}
-            ${{ steps.download_model.outputs.local_metadata_path }}
+            ${{ steps.verify_model.outputs.local_artifact_path }}
+            ${{ steps.verify_model.outputs.local_metadata_path }}
           retention-days: 30
 
-      - name: Install promoted model on web app server
+      - name: Install promoted model on local web app server
         if: steps.retrain.outputs.promotion_status == 'promoted'
         run: |
           set -euo pipefail
-          scp -i ~/.ssh/zone5_webapp_key -P "$WEBAPP_SSH_PORT" \
-            "$LOCAL_ARTIFACT_PATH" \
-            "$WEBAPP_SSH_USER@$WEBAPP_SSH_HOST:$WEB_REMOTE_DIR/"
-          ssh -i ~/.ssh/zone5_webapp_key -p "$WEBAPP_SSH_PORT" "$WEBAPP_SSH_USER@$WEBAPP_SSH_HOST" \
-            "PKG_ROOT='${WEBAPP_PKG_ROOT:-}' RUN_ID='$RUN_ID' ARTIFACT_PATH='$WEB_REMOTE_DIR/$(basename "$LOCAL_ARTIFACT_PATH")' ARTIFACT_SHA256='$ARTIFACT_SHA256' HEALTH_URL='$ZONE5_PRODUCTION_HEALTH_URL' bash '$WEB_REMOTE_DIR/install_zone5_model_artifact.sh'"
+          helper="$GITHUB_WORKSPACE/zone5_cv_time_features_package/ci/install_zone5_model_artifact.sh"
+          pkg_root="${WEBAPP_PKG_ROOT:-$HOME/smart-i-lab-testbed/zone5_cv_time_features_package}"
+          if [ ! -x "$helper" ]; then
+            echo "Missing install helper: $helper" >&2
+            exit 1
+          fi
+          PKG_ROOT="$pkg_root" \
+            RUN_ID="$RUN_ID" \
+            ARTIFACT_PATH="$LOCAL_ARTIFACT_PATH" \
+            ARTIFACT_SHA256="$ARTIFACT_SHA256" \
+            HEALTH_URL="$ZONE5_PRODUCTION_HEALTH_URL" \
+            bash "$helper"
 
       - name: Record sanitized model metadata
         if: steps.retrain.outputs.promotion_status == 'promoted'
