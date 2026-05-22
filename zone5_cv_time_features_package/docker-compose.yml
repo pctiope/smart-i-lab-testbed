@@ -4,6 +4,11 @@ x-zone5-env: &zone5-env
   PYTHONUNBUFFERED: "1"
   PYTHON_BIN: python3
   PYTHONPATH: /app
+  USER: zone5
+  LOGNAME: zone5
+  HOME: /tmp
+  XDG_CACHE_HOME: /tmp/.cache
+  TORCHINDUCTOR_CACHE_DIR: /tmp/torchinductor
   YOLO_AUTOINSTALL: "False"
   ZONE5_SKIP_DOTENV: "1"
   SNAPSHOT_REFRESH_EVERY_HOURS: "1"
