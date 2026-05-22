@@ -2,6 +2,10 @@ name: Zone 5 Production Retrain
 
 on:
   workflow_dispatch:
+  schedule:
+    # 03:30 Philippine Time. Scheduled retraining is gated by
+    # vars.ZONE5_ENABLE_SCHEDULED_RETRAIN == 'true'.
+    - cron: "30 19 * * *"
 
 permissions:
   contents: write
@@ -11,11 +15,21 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  scheduled-retrain-disabled:
+    name: Scheduled retrain disabled
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' && vars.ZONE5_ENABLE_SCHEDULED_RETRAIN != 'true'
+    steps:
+      - name: Report disabled schedule
+        run: |
+          echo "Scheduled Zone 5 retraining is disabled."
+          echo "Set repository variable ZONE5_ENABLE_SCHEDULED_RETRAIN=true after the manual retrain workflow is proven."
+
   retrain:
     name: Retrain and deliver promoted model
     runs-on: [self-hosted, linux, x64, zone5, smart-ilab]
     timeout-minutes: 540
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'schedule' || vars.ZONE5_ENABLE_SCHEDULED_RETRAIN == 'true')
     env:
       TRAINING_PKG_ROOT: ${{ vars.ZONE5_TRAINING_PKG_ROOT }}
       WEBAPP_PKG_ROOT: ${{ vars.ZONE5_WEBAPP_PKG_ROOT }}

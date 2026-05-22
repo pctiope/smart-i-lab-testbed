@@ -14,7 +14,9 @@ runner and writes to `~/smart-i-lab-testbed-compose`.
 `Zone 5 Production Retrain` runs manually from `main`. It runs on the
 self-hosted runner, disables the old `zone5-trainer.timer`, starts
 `zone5-trainer.service`, waits for completion, packages a newly promoted run,
-and installs it into the local production web app package.
+and installs it into the local production web app package. The workflow also
+has a nightly 03:30 PHT cron, but scheduled retraining is gated until
+`ZONE5_ENABLE_SCHEDULED_RETRAIN=true` is set as a repository variable.
 
 `Zone 5 Model Delivery` is the external artifact handoff path. A training
 server or model registry can upload a versioned model tarball, then trigger this
@@ -70,8 +72,99 @@ zone5
 smart-ilab
 ```
 
+Current server convention:
+
+```text
+runner directory: ~/actions-runner-smart-ilab
+service: actions.runner.pctiope-smart-i-lab-testbed.zone5-smart-ilab-ngrg-ric.service
+docker drop-in: ~/.config/systemd/user/actions.runner.pctiope-smart-i-lab-testbed.zone5-smart-ilab-ngrg-ric.service.d/docker-exec.conf
+```
+
+The runner service should execute through the `docker` group so workflow jobs
+can run `docker compose`:
+
+```text
+ExecStart=/usr/bin/sg docker -c /home/ngrg-user/actions-runner-smart-ilab/run.sh
+```
+
+Check the runner:
+
+```bash
+systemctl --user status actions.runner.pctiope-smart-i-lab-testbed.zone5-smart-ilab-ngrg-ric.service --no-pager
+systemctl --user cat actions.runner.pctiope-smart-i-lab-testbed.zone5-smart-ilab-ngrg-ric.service
+```
+
+Restart the runner after changing the service or group membership:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user restart actions.runner.pctiope-smart-i-lab-testbed.zone5-smart-ilab-ngrg-ric.service
+```
+
 Keep the runner service scoped to trusted workflows. Do not run production
-deployment jobs from arbitrary pull request code.
+deployment jobs from arbitrary pull request code. GitHub runner registration
+tokens are one-time credentials; do not commit them, paste them into issues, or
+store them in repo docs.
+
+## Health Checks
+
+Run the bundled CI/CD health check from the production checkout:
+
+```bash
+bash zone5_cv_time_features_package/ci/check_zone5_cicd_health.sh
+```
+
+The script checks:
+
+- self-hosted runner user service
+- staging Compose services under `~/smart-i-lab-testbed-compose`
+- staging backend and frontend proxy health on `8005` and `8016`
+- production backend and frontend proxy health on `8000` and `8015`
+
+The same checks can be run manually:
+
+```bash
+systemctl --user status actions.runner.pctiope-smart-i-lab-testbed.zone5-smart-ilab-ngrg-ric.service --no-pager
+cd ~/smart-i-lab-testbed-compose/zone5_cv_time_features_package
+docker compose ps
+curl --noproxy '*' -fsS http://192.168.10.17:8005/api/health
+curl --noproxy '*' -fsS http://192.168.10.17:8016/api/health
+curl --noproxy '*' -fsS http://192.168.10.17:8000/api/health
+curl --noproxy '*' -fsS http://192.168.10.17:8015/api/health
+```
+
+## Automated Retraining Cadence
+
+Default policy:
+
+- prove `Zone 5 Production Retrain` once with a manual `workflow_dispatch`
+- enable automated retraining only after that manual run succeeds
+- run nightly at 03:30 PHT (`30 19 * * *` UTC)
+- keep GitHub Actions as the only automated scheduler
+- leave `zone5-trainer.timer` disabled while GitHub scheduled retraining is
+  enabled
+
+Enable the schedule after the manual proof by setting this repository variable:
+
+```text
+ZONE5_ENABLE_SCHEDULED_RETRAIN=true
+```
+
+Keep it unset or set to any value other than `true` to leave scheduled runs
+disabled. Manual workflow dispatch continues to work either way.
+
+Confirm the old systemd timer is disabled:
+
+```bash
+systemctl --user is-enabled zone5-trainer.timer
+systemctl --user status zone5-trainer.timer --no-pager
+```
+
+If the timer is still enabled after GitHub scheduling is turned on, disable it:
+
+```bash
+systemctl --user disable --now zone5-trainer.timer
+```
 
 ## Repository Secrets And Variables
 
@@ -86,6 +179,7 @@ Optional repository variables:
 - `ZONE5_WEBAPP_PKG_ROOT`
 - `ZONE5_TRAINING_TIMEOUT_MINUTES`
 - `ZONE5_PRODUCTION_HEALTH_URL`
+- `ZONE5_ENABLE_SCHEDULED_RETRAIN`
 
 If package-root variables are unset, the workflows use the production default:
 
