@@ -1,3 +1,5 @@
+name: ${ZONE5_COMPOSE_PROJECT_NAME:-zone5-compose}
+
 x-zone5-env: &zone5-env
   PYTHONUNBUFFERED: "1"
   PYTHON_BIN: python3
@@ -30,7 +32,7 @@ x-zone5-service: &zone5-service
 services:
   person-counter:
     <<: *zone5-service
-    container_name: zone5-person-counter
+    container_name: zone5-compose-person-counter
     command: ["bash", "run_person_counter.sh"]
     restart: unless-stopped
     environment:
@@ -38,7 +40,7 @@ services:
 
   mqtt-aggregator:
     <<: *zone5-service
-    container_name: zone5-mqtt-aggregator
+    container_name: zone5-compose-mqtt-aggregator
     command: ["python", "-m", "zone5.occupancy_mqtt_aggregator"]
     restart: unless-stopped
     environment:
@@ -46,7 +48,7 @@ services:
 
   sen55-collector:
     <<: *zone5-service
-    container_name: sen55-collector
+    container_name: zone5-compose-sen55-collector
     command: ["bash", "run_sen55_collector.sh"]
     restart: unless-stopped
     environment:
@@ -54,7 +56,7 @@ services:
 
   live-collector:
     <<: *zone5-service
-    container_name: zone5-live-collector
+    container_name: zone5-compose-live-collector
     command: ["bash", "run_live_collector.sh"]
     restart: unless-stopped
     environment:
@@ -62,11 +64,11 @@ services:
 
   live-app:
     <<: *zone5-service
-    container_name: zone5-live-app
+    container_name: zone5-compose-live-app
     command: ["bash", "run_live_app.sh"]
     restart: unless-stopped
     ports:
-      - "${ZONE5_APP_PORT:-8000}:8000"
+      - "${ZONE5_APP_PORT:-8005}:8000"
     environment:
       <<: *zone5-env
       HOST: 0.0.0.0
@@ -79,9 +81,27 @@ services:
       retries: 3
       start_period: 30s
 
+  vite-frontend:
+    image: node:22-bookworm-slim
+    container_name: zone5-compose-vite-frontend
+    working_dir: /app
+    init: true
+    restart: unless-stopped
+    depends_on:
+      live-app:
+        condition: service_healthy
+    ports:
+      - "${ZONE5_VITE_PORT:-8016}:8016"
+    environment:
+      VITE_INFERENCE_API_URL: ${VITE_INFERENCE_API_URL:-http://live-app:8000}
+    volumes:
+      - ./web_app_vite/smart-ilab-zone5:/app
+      - zone5-vite-node-modules:/app/node_modules
+    command: ["sh", "-c", "npm ci && npm run build && npm run preview -- --host 0.0.0.0 --port 8016"]
+
   replay-app:
     <<: *zone5-service
-    container_name: zone5-replay-app
+    container_name: zone5-compose-replay-app
     command: ["bash", "run_replay_app.sh"]
     profiles: ["replay"]
     ports:
@@ -94,7 +114,7 @@ services:
 
   trainer:
     <<: *zone5-service
-    container_name: zone5-trainer
+    container_name: zone5-compose-trainer
     command: ["bash", "train_model.sh"]
     profiles: ["ops"]
     restart: "no"
@@ -103,7 +123,7 @@ services:
 
   promoter:
     <<: *zone5-service
-    container_name: zone5-promoter
+    container_name: zone5-compose-promoter
     command: ["python", "-m", "zone5.promote_model"]
     profiles: ["ops"]
     restart: "no"
@@ -112,7 +132,7 @@ services:
 
   historical-collector:
     <<: *zone5-service
-    container_name: zone5-historical-collector
+    container_name: zone5-compose-historical-collector
     command: ["python", "-m", "zone5.collect_training_data"]
     profiles: ["ops"]
     restart: "no"
@@ -121,7 +141,7 @@ services:
 
   csv-exporter:
     <<: *zone5-service
-    container_name: zone5-csv-exporter
+    container_name: zone5-compose-csv-exporter
     command: ["python", "-m", "zone5.air1_exporter"]
     profiles: ["ops"]
     restart: "no"
@@ -130,7 +150,7 @@ services:
 
   smoke-test:
     <<: *zone5-service
-    container_name: zone5-smoke-test
+    container_name: zone5-compose-smoke-test
     command: ["python", "smoke_test.py"]
     profiles: ["ops"]
     restart: "no"
@@ -139,7 +159,7 @@ services:
 
   compile-check:
     <<: *zone5-service
-    container_name: zone5-compile-check
+    container_name: zone5-compose-compile-check
     command: ["python", "-m", "compileall", "zone5", "web_app", "smoke_test.py"]
     profiles: ["ops"]
     restart: "no"
@@ -148,7 +168,7 @@ services:
 
   unit-tests:
     <<: *zone5-service
-    container_name: zone5-unit-tests
+    container_name: zone5-compose-unit-tests
     command: ["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test*.py", "-v"]
     profiles: ["ops"]
     restart: "no"
@@ -157,7 +177,7 @@ services:
 
   shell:
     <<: *zone5-service
-    container_name: zone5-shell
+    container_name: zone5-compose-shell
     command: ["bash"]
     profiles: ["ops"]
     restart: "no"
@@ -165,3 +185,6 @@ services:
     tty: true
     environment:
       <<: *zone5-env
+
+volumes:
+  zone5-vite-node-modules:
