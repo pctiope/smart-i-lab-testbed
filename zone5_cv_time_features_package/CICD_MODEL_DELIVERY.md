@@ -1,23 +1,26 @@
 # Zone 5 Production Retraining and Model Delivery
 
-This runbook describes the CI/CD path for production retraining when the
-training server and the web app server may be different machines.
+This runbook describes the CI/CD path for staging Compose deployment,
+production retraining, and external model delivery. The current same-server
+deployment uses a GitHub self-hosted runner on the Zone 5 server.
 
 ## Workflows
 
 `Zone 5 Compose CI/CD` validates and deploys the staging Docker Compose stack
 from `cicd/zone5-compose`. It does not replace the production user-systemd
-services.
+services. CI runs on GitHub-hosted runners; deployment runs on the self-hosted
+runner and writes to `~/smart-i-lab-testbed-compose`.
 
-`Zone 5 Production Retrain` runs manually or nightly at 2 AM Asia/Manila after
-the workflow exists on the default branch. It SSHes to the training server,
-disables the old `zone5-trainer.timer`, starts `zone5-trainer.service`, waits
-for completion, packages a newly promoted run, and delivers it to the web app
-server.
+`Zone 5 Production Retrain` runs manually from `main`. It runs on the
+self-hosted runner, disables the old `zone5-trainer.timer`, starts
+`zone5-trainer.service`, waits for completion, packages a newly promoted run,
+and installs it into the local production web app package.
 
 `Zone 5 Model Delivery` is the external artifact handoff path. A training
 server or model registry can upload a versioned model tarball, then trigger this
-workflow with `workflow_dispatch` or `repository_dispatch`.
+workflow with `workflow_dispatch` or `repository_dispatch`. The workflow runs on
+the self-hosted runner and installs the downloaded artifact locally on the web
+app server.
 
 ## Model Artifact Contract
 
@@ -53,26 +56,28 @@ Git stores sanitized metadata only under `model_registry/`. Do not commit:
 - runtime `.env` files
 - full `model/` contents
 
-## Repository Secrets
+## Self-Hosted Runner
 
-Staging Compose deploy keeps using:
+Install the repository self-hosted runner on the Zone 5 web app server as the
+same user that owns the production checkout and user-systemd services. Use these
+runner labels:
 
-- `SSH_HOST`
-- `SSH_USER`
-- `SSH_KEY`
-- `SSH_PORT`
+```text
+self-hosted
+linux
+x64
+zone5
+smart-ilab
+```
 
-Split-server model delivery can either reuse those secrets or set explicit
-server-specific secrets:
+Keep the runner service scoped to trusted workflows. Do not run production
+deployment jobs from arbitrary pull request code.
 
-- `TRAINING_SSH_HOST`
-- `TRAINING_SSH_USER`
-- `TRAINING_SSH_KEY`
-- `TRAINING_SSH_PORT`
-- `WEBAPP_SSH_HOST`
-- `WEBAPP_SSH_USER`
-- `WEBAPP_SSH_KEY`
-- `WEBAPP_SSH_PORT`
+## Repository Secrets And Variables
+
+Same-server staging deploy, production retrain, and local model delivery do not
+need SSH secrets. Optional secrets:
+
 - `MODEL_REGISTRY_TOKEN` for private artifact downloads
 
 Optional repository variables:
@@ -87,6 +92,10 @@ If package-root variables are unset, the workflows use the production default:
 ```text
 ~/smart-i-lab-testbed/zone5_cv_time_features_package
 ```
+
+For a future split-server setup, install the self-hosted runner on the web app
+server and trigger `Zone 5 Model Delivery` with an artifact URL from the
+training server or model registry.
 
 ## Triggering External Model Delivery
 

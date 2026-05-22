@@ -78,36 +78,17 @@ jobs:
 
   deploy:
     name: Deploy staging Compose stack
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, zone5, smart-ilab]
     timeout-minutes: 30
     needs: ci
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/cicd/zone5-compose'
     env:
       DEPLOY_BRANCH: cicd/zone5-compose
       REPO_URL: https://github.com/${{ github.repository }}.git
-      SSH_HOST: ${{ secrets.SSH_HOST }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_KEY: ${{ secrets.SSH_KEY }}
-      SSH_PORT: ${{ secrets.SSH_PORT }}
 
     steps:
-      - name: Configure SSH
+      - name: Deploy local staging stack
         run: |
-          : "${SSH_HOST:?SSH_HOST secret is required}"
-          : "${SSH_USER:?SSH_USER secret is required}"
-          : "${SSH_KEY:?SSH_KEY secret is required}"
-          SSH_PORT="${SSH_PORT:-22}"
-
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/zone5_compose_key
-          chmod 600 ~/.ssh/zone5_compose_key
-          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
-
-      - name: Deploy over SSH
-        run: |
-          SSH_PORT="${SSH_PORT:-22}"
-          ssh -i ~/.ssh/zone5_compose_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "DEPLOY_BRANCH='$DEPLOY_BRANCH' REPO_URL='$REPO_URL' DEPLOY_SHA='$GITHUB_SHA' bash -s" <<'REMOTE'
           set -euo pipefail
 
           DEPLOY_ROOT="${DEPLOY_ROOT:-$HOME/smart-i-lab-testbed-compose}"
@@ -152,6 +133,31 @@ jobs:
               exit 1
             fi
             install -m 600 "$PROD_ROOT/web_app/.env" "$PKG_ROOT/web_app/.env"
+          fi
+
+          if [ ! -f "$PKG_ROOT/model/production_run.txt" ]; then
+            if [ ! -f "$PROD_ROOT/model/production_run.txt" ]; then
+              echo "Missing production model pointer at $PROD_ROOT/model/production_run.txt." >&2
+              exit 1
+            fi
+            pointer_rel="$(cat "$PROD_ROOT/model/production_run.txt")"
+            case "$pointer_rel" in
+              model/runs/*) ;;
+              *)
+                echo "Unexpected production model pointer: $pointer_rel" >&2
+                exit 1
+                ;;
+            esac
+            run_id="${pointer_rel#model/runs/}"
+            if [ ! -d "$PROD_ROOT/model/runs/$run_id" ]; then
+              echo "Missing production model run at $PROD_ROOT/model/runs/$run_id." >&2
+              exit 1
+            fi
+            install -d "$PKG_ROOT/model/runs"
+            if [ ! -d "$PKG_ROOT/model/runs/$run_id" ]; then
+              cp -a "$PROD_ROOT/model/runs/$run_id" "$PKG_ROOT/model/runs/"
+            fi
+            printf '%s\n' "$pointer_rel" > "$PKG_ROOT/model/production_run.txt"
           fi
 
           python3 - "$PROD_ROOT/web_app_vite/smart-ilab-zone5/.env" "$PROD_ROOT/web_app/.env" "$PKG_ROOT/web_app_vite/smart-ilab-zone5/.env" <<'PY'
@@ -214,7 +220,23 @@ jobs:
           docker compose config --quiet
           docker compose up -d --build person-counter mqtt-aggregator sen55-collector live-collector live-app vite-frontend
           docker compose ps
-          curl --noproxy '*' -fsS http://127.0.0.1:8005/api/health >/dev/null
+          for service in person-counter mqtt-aggregator sen55-collector live-collector live-app vite-frontend; do
+            if ! docker compose ps --services --status running | grep -qx "$service"; then
+              echo "Compose service is not running: $service" >&2
+              docker compose ps >&2
+              exit 1
+            fi
+          done
+
+          health_json="$(curl --noproxy '*' -fsS http://127.0.0.1:8005/api/health)"
+          python3 - "$health_json" <<'PY'
+          import json
+          import sys
+
+          health = json.loads(sys.argv[1])
+          model_run_id = (health.get("inference") or {}).get("model_run_id")
+          if not health.get("ok") or not model_run_id:
+              raise SystemExit("staging backend is missing ok health or model_run_id")
+          PY
           curl --noproxy '*' -fsS http://127.0.0.1:8016/ >/dev/null
           curl --noproxy '*' -fsS http://127.0.0.1:8016/api/health >/dev/null
-          REMOTE
