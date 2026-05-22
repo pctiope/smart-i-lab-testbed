@@ -89,14 +89,16 @@ Create a `.env` file in `smart-ilab-zone5/` (never committed — see `.gitignore
 ```dotenv
 # API key injected into every proxied request as x-api-key
 VITE_API_KEY=your-api-key-here
+VITE_INFERENCE_API_URL=smart-ilab-inference-zone5-api-url
+VITE_ILAB_API_URL=your-ilab-api-url
 ```
 
 The dev-server proxy targets are set in [vite.config.js](zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/vite.config.js):
 
 | Prefix | Forwarded to | Purpose |
 |---|---|---|
-| `/api` | `http://192.168.10.17:8000` | Zone 5 occupancy backend |
-| `/env-api` | `http://10.158.66.30:80` | Smart I-Lab IoT REST API |
+| `/api` | `VITE_INFERENCE_API_URL` | Zone 5 occupancy backend |
+| `/env-api` | `VITE_ILAB_API_URL` | Smart I-Lab IoT REST API |
 
 Update these addresses in `vite.config.js` if your backend is on a different host.
 
