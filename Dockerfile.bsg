@@ -33,6 +33,7 @@ COPY docker/bsg-entrypoint.sh /usr/local/bin/bsg-entrypoint
 
 RUN chmod +x /usr/local/bin/bsg-entrypoint \
     && mkdir -p data logs stage zone5_cv_time_features_package/data zone5_cv_time_features_package/model zone5_cv_time_features_package/logs /tmp/matplotlib /tmp/torchinductor \
+    && ln -s data/smart_ilab.duckdb smart_ilab.duckdb \
     && chmod 1777 /tmp/matplotlib /tmp/torchinductor
 
 ENTRYPOINT ["bsg-entrypoint"]

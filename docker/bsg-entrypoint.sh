@@ -11,7 +11,7 @@ mkdir -p \
   /tmp/matplotlib \
   /tmp/torchinductor
 
-if [ ! -e smart_ilab.duckdb ]; then
+if [ ! -L smart_ilab.duckdb ] && [ ! -e smart_ilab.duckdb ]; then
   ln -s data/smart_ilab.duckdb smart_ilab.duckdb
 fi
 
