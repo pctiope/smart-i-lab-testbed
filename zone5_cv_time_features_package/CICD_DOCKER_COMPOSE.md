@@ -11,6 +11,27 @@ Use this path when the server should run the services from `docker-compose.yml`:
 - `sen55-collector`
 - `live-collector`
 - `live-app`
+- `vite-frontend`
+
+In the combined `smart-i-lab-testbed` repo, Docker Compose is the staging
+deploy path on the `cicd/zone5-compose` branch. Production runtime stays on the
+user-systemd checkout, production source deploy is handled by
+`.github/workflows/zone5-systemd-source-deploy.yml`, and training/model delivery
+stay in their own production workflows.
+
+The current staging workflow is:
+
+```text
+.github/workflows/zone5-compose-ci-cd.yml
+```
+
+It deploys to `~/smart-i-lab-testbed-compose/zone5_cv_time_features_package`
+and keeps staging on ports `8005` and `8016`, separate from production
+user-systemd ports `8000` and `8015`.
+
+Scheduled production training should be enabled only through the GitHub retrain
+workflow after the manual proof run succeeds; do not add a Compose-side trainer
+timer for production.
 
 Compose does not include an hourly trainer timer. The live services collect and
 serve data; training and promotion are ops commands unless you explicitly enable
@@ -130,8 +151,9 @@ Validate and start manually once before automating deploys:
 ```bash
 docker compose config --quiet
 docker compose build
-docker compose up -d person-counter mqtt-aggregator sen55-collector live-collector live-app
-curl -fsS http://127.0.0.1:8000/api/health
+docker compose up -d person-counter mqtt-aggregator sen55-collector live-collector live-app vite-frontend
+curl -fsS http://127.0.0.1:8005/api/health
+curl -fsS http://127.0.0.1:8016/api/health
 ```
 
 The app may report that `model/production_run.txt` is missing until enough real
@@ -247,9 +269,10 @@ jobs:
           mkdir -p data model logs
           docker compose config --quiet
           docker compose build
-          docker compose up -d --force-recreate person-counter mqtt-aggregator sen55-collector live-collector live-app
+          docker compose up -d --force-recreate person-counter mqtt-aggregator sen55-collector live-collector live-app vite-frontend
           docker compose ps
-          curl -fsS http://127.0.0.1:8000/api/health || true
+          curl -fsS http://127.0.0.1:8005/api/health || true
+          curl -fsS http://127.0.0.1:8016/api/health || true
           EOF
 ```
 
@@ -322,9 +345,10 @@ deploy_compose:
       mkdir -p data model logs
       docker compose config --quiet
       docker compose build
-      docker compose up -d --force-recreate person-counter mqtt-aggregator sen55-collector live-collector live-app
+      docker compose up -d --force-recreate person-counter mqtt-aggregator sen55-collector live-collector live-app vite-frontend
       docker compose ps
-      curl -fsS http://127.0.0.1:8000/api/health || true
+      curl -fsS http://127.0.0.1:8005/api/health || true
+      curl -fsS http://127.0.0.1:8016/api/health || true
       EOF
 ```
 
@@ -367,7 +391,8 @@ cd ~/zone5_cv_time_features_package
 docker compose ps
 docker compose logs --tail 100 live-app
 docker compose logs --tail 100 live-collector
-curl -fsS http://127.0.0.1:8000/api/health
+curl -fsS http://127.0.0.1:8005/api/health
+curl -fsS http://127.0.0.1:8016/api/health
 ```
 
 Roll back to a previous commit:
@@ -377,7 +402,7 @@ cd ~/zone5_cv_time_features_package
 git log --oneline -n 10
 git checkout PREVIOUS_COMMIT_SHA
 docker compose build
-docker compose up -d --force-recreate person-counter mqtt-aggregator sen55-collector live-collector live-app
+docker compose up -d --force-recreate person-counter mqtt-aggregator sen55-collector live-collector live-app vite-frontend
 ```
 
 Return to normal tracking after rollback testing:
@@ -386,5 +411,5 @@ Return to normal tracking after rollback testing:
 git checkout main
 git pull --ff-only origin main
 docker compose build
-docker compose up -d --force-recreate person-counter mqtt-aggregator sen55-collector live-collector live-app
+docker compose up -d --force-recreate person-counter mqtt-aggregator sen55-collector live-collector live-app vite-frontend
 ```

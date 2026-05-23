@@ -1,0 +1,101 @@
+name: Zone 5 Systemd Source Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/zone5-systemd-source-deploy.yml
+      - zone5_cv_time_features_package/**
+      - "!zone5_cv_time_features_package/**/*.md"
+      - "!zone5_cv_time_features_package/data/**"
+      - "!zone5_cv_time_features_package/model/**"
+      - "!zone5_cv_time_features_package/model_registry/**"
+      - "!zone5_cv_time_features_package/logs/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zone5-production
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate Zone 5 source deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: zone5_cv_time_features_package
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: zone5_cv_time_features_package/requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          python -m pip install -r requirements.txt
+
+      - name: Compile Python modules
+        run: python -m compileall zone5 web_app ci smoke_test.py
+
+      - name: Run Zone 5 ground-truth tests
+        run: PYTHONPATH=. python tests/test_cv_ground_truth.py
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/package-lock.json
+
+      - name: Install Vite dependencies
+        working-directory: zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5
+        run: npm ci
+
+      - name: Build Vite frontend
+        working-directory: zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5
+        run: npm run build
+
+      - name: Verify checked-in user units
+        run: systemd-analyze verify systemd/user/*.service systemd/user/*.timer
+
+      - name: Create CI-only runtime env files
+        run: |
+          touch web_app/.env
+          touch web_app_vite/smart-ilab-zone5/.env
+
+      - name: Validate Docker Compose config
+        run: docker compose config --quiet
+
+      - name: Build Docker Compose images
+        run: docker compose build
+
+  deploy:
+    name: Deploy production user-systemd source
+    runs-on: [self-hosted, linux, x64, zone5, smart-ilab]
+    timeout-minutes: 30
+    needs: validate
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    env:
+      DEPLOY_SHA: ${{ github.sha }}
+      PRODUCTION_ROOT: ${{ vars.ZONE5_PRODUCTION_ROOT }}
+      PRODUCTION_BACKEND_HEALTH_URL: ${{ vars.ZONE5_PRODUCTION_BACKEND_HEALTH_URL || vars.ZONE5_PRODUCTION_HEALTH_URL || 'http://127.0.0.1:8000/api/health' }}
+      PRODUCTION_FRONTEND_HEALTH_URL: ${{ vars.ZONE5_PRODUCTION_FRONTEND_HEALTH_URL || 'http://127.0.0.1:8015/api/health' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Deploy source to production user-systemd checkout
+        run: bash zone5_cv_time_features_package/ci/deploy_zone5_systemd_source.sh
