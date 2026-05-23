@@ -27,6 +27,7 @@ CLI usage
 
 import argparse
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -74,8 +75,12 @@ run_bronze_to_silver        = _b2s.run_bronze_to_silver
 run_silver_to_gold          = _s2g.run_silver_to_gold
 
 # ── API credentials ───────────────────────────────────────────────────────────
-BASE_URL = "http://10.158.66.30:80"
-API_KEY  = "3a21fe5a-78cb-4252-99ea-c8a87be7982e"
+BASE_URL = os.getenv("SMART_ILAB_BASE_URL")
+API_KEY = os.getenv("SMART_ILAB_API_KEY")
+if not BASE_URL or not API_KEY:
+    raise RuntimeError(
+        "Missing Smart i-Lab API credentials. Set SMART_ILAB_BASE_URL and SMART_ILAB_API_KEY."
+    )
 FULL_HISTORY_START = datetime(2000, 1, 1, tzinfo=timezone.utc)
 LOGGER = logging.getLogger("api_ingestion")
 
