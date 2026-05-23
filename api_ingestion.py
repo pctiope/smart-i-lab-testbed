@@ -26,12 +26,14 @@ CLI usage
 """
 
 import argparse
+import logging
 import subprocess
 import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from importlib import import_module as _im
+from pathlib import Path
 from urllib.parse import quote
 
 import pandas as pd
@@ -75,6 +77,35 @@ run_silver_to_gold          = _s2g.run_silver_to_gold
 BASE_URL = "http://10.158.66.30:80"
 API_KEY  = "3a21fe5a-78cb-4252-99ea-c8a87be7982e"
 FULL_HISTORY_START = datetime(2000, 1, 1, tzinfo=timezone.utc)
+LOGGER = logging.getLogger("api_ingestion")
+
+
+def configure_logging(log_path: str | None = None) -> None:
+    if LOGGER.handlers:
+        return
+
+    LOGGER.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(logging.INFO)
+    console.setFormatter(formatter)
+    LOGGER.addHandler(console)
+
+    if log_path:
+        log_file = Path(log_path)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        LOGGER.addHandler(file_handler)
+
+
+def _log(message: str, level: int = logging.INFO) -> None:
+    if LOGGER.handlers:
+        LOGGER.log(level, message)
+    else:
+        print(message)
 
 
 # =============================================================================
@@ -95,7 +126,7 @@ class SmartILabAPIClient:
             payload = r.json()
             return payload if isinstance(payload, list) else list(payload)
         except Exception as exc:
-            print(f"[{device_type}] Failed to list devices: {exc}")
+            _log(f"[{device_type}] Failed to list devices: {exc}", logging.ERROR)
             return []
 
     # ── Single-device fetch ───────────────────────────────────────────────────
@@ -124,10 +155,10 @@ class SmartILabAPIClient:
             # for many device types — log at debug level only, don't flood output
             if exc.response is not None and exc.response.status_code < 500:
                 return None   # silently skip groups and no-history devices
-            print(f"[{device_type}/{device_id}] Server error: {exc}")
+            _log(f"[{device_type}/{device_id}] Server error: {exc}", logging.ERROR)
             return None
         except Exception as exc:
-            print(f"[{device_type}/{device_id}] Fetch error: {exc}")
+            _log(f"[{device_type}/{device_id}] Fetch error: {exc}", logging.ERROR)
             return None
 
     # ── Latest timestamp from API (windowed probe) ────────────────────────────
@@ -188,7 +219,7 @@ class SmartILabAPIClient:
             parsed = pd.to_datetime(ts_value, utc=True)
             return parsed.tz_convert("Asia/Singapore").tz_localize(None).to_pydatetime()
         except Exception as exc:
-            print(f"Timestamp parse error '{ts_value}': {exc}")
+            _log(f"Timestamp parse error '{ts_value}': {exc}", logging.ERROR)
             return None
 
     # ── Historical collect → DataFrame ────────────────────────────────────────
@@ -216,16 +247,26 @@ class SmartILabAPIClient:
         time_end:   datetime,
     ) -> pd.DataFrame:
         rows: dict = defaultdict(lambda: {"temps": {}, "rhs": {}, "co2s": {}, "pm25s": {}})
-        print(f"\n{'='*60}\nCOLLECTING air-1 ({len(devices)} sensors)\n{'='*60}")
+        fallback_positions: dict[str, int] = {}
+        known_sensor_count = len(DEVICE_TO_POSITION)
+        _log(f"\n{'='*60}\nCOLLECTING air-1 ({len(devices)} sensors)\n{'='*60}")
 
-        for device_id in devices:
-            if device_id not in DEVICE_TO_POSITION:
-                print(f"  [air-1] {device_id} not in sensor map — skipping")
-                continue
-            pos     = DEVICE_TO_POSITION[device_id]
+        for index, device_id in enumerate(devices, start=1):
+            _log(f"[air-1] [{index}/{len(devices)}] Fetching sensor {device_id}")
+            if device_id in DEVICE_TO_POSITION:
+                pos = DEVICE_TO_POSITION[device_id]
+            else:
+                pos = fallback_positions.setdefault(
+                    device_id,
+                    known_sensor_count + len(fallback_positions) + 1,
+                )
+                _log(f"  [air-1] {device_id} not in sensor map - assigning fallback slot s{pos}")
             history = self.get_device_data("air-1", device_id, time_start, time_end)
             if not history:
+                _log(f"  [air-1] {device_id} returned no history")
                 continue
+            reading_count = len(history) if isinstance(history, list) else 1
+            _log(f"  [air-1] {device_id} mapped to s{pos} with {reading_count} readings")
             for reading in (history if isinstance(history, list) else [history]):
                 if not isinstance(reading, dict) or "timestamp" not in reading:
                     continue
@@ -243,9 +284,22 @@ class SmartILabAPIClient:
                         rows[ts][store][pos] = reading[field]
 
         records = []
+        max_position = known_sensor_count
+        if rows:
+            max_position = max(
+                known_sensor_count,
+                max(
+                    max((positions.keys()), default=known_sensor_count)
+                    for positions in (
+                        data[store_name]
+                        for data in rows.values()
+                        for store_name in ("temps", "rhs", "co2s", "pm25s")
+                    )
+                ),
+            )
         for ts, data in sorted(rows.items()):
             rec = {"timestamp": ts}
-            for i in range(1, 16):
+            for i in range(1, max_position + 1):
                 rec[f"temp_s{i}"]  = data["temps"].get(i)
                 rec[f"rh_s{i}"]    = data["rhs"].get(i)
                 rec[f"co2_s{i}"]   = data["co2s"].get(i)
@@ -255,7 +309,7 @@ class SmartILabAPIClient:
         df = pd.DataFrame(records)
         if not df.empty:
             df = df.sort_values("timestamp").reset_index(drop=True)
-        print(f"[air-1] Collected {len(df)} wide rows")
+        _log(f"[air-1] Collected {len(df)} wide rows")
         return df
 
     def _collect_generic(
@@ -266,13 +320,16 @@ class SmartILabAPIClient:
         time_end:    datetime,
     ) -> pd.DataFrame:
         records = []
-        print(f"\n{'='*60}\nCOLLECTING {device_type.upper()} ({len(devices)} devices)\n{'='*60}")
+        _log(f"\n{'='*60}\nCOLLECTING {device_type.upper()} ({len(devices)} devices)\n{'='*60}")
 
-        for device_id in devices:
+        for index, device_id in enumerate(devices, start=1):
+            _log(f"[{device_type}] [{index}/{len(devices)}] Fetching device {device_id}")
             history = self.get_device_data(device_type, device_id, time_start, time_end)
             if not history:
+                _log(f"[{device_type}] {device_id} returned no history")
                 continue
             readings = history if isinstance(history, list) else [history]
+            _log(f"[{device_type}] {device_id} returned {len(readings)} readings")
             for reading in pd.json_normalize(readings).to_dict(orient="records"):
                 reading["device_id"]   = device_id
                 reading["device_type"] = device_type
@@ -287,7 +344,7 @@ class SmartILabAPIClient:
         if not df.empty and "timestamp" in df.columns:
             df["timestamp"] = pd.to_datetime(df["timestamp"])
             df = df.sort_values(["timestamp", "device_id"]).reset_index(drop=True)
-        print(f"[{device_type}] Collected {len(df)} rows")
+        _log(f"[{device_type}] Collected {len(df)} rows")
         return df
 
 
@@ -344,23 +401,23 @@ def ingest_and_rebuild_bronze(
     if latest_db is None:
         if history_start is not None:
             fetch_from = history_start
-            print(f"[{device_type}] Bootstrap: fetching full history from {fetch_from.isoformat()}")
+            _log(f"[{device_type}] Bootstrap: fetching full history from {fetch_from.isoformat()}")
         else:
             fetch_from = now - timedelta(hours=lookback_hours)
-            print(f"[{device_type}] Bootstrap: fetching last {lookback_hours} h")
+            _log(f"[{device_type}] Bootstrap: fetching last {lookback_hours} h")
     else:
         fetch_from = pd.to_datetime(latest_db).to_pydatetime() + timedelta(seconds=1)
         if fetch_from.tzinfo is None:
             fetch_from = fetch_from.replace(tzinfo=timezone.utc)
-        print(f"[{device_type}] Incremental fetch from {fetch_from.isoformat()}")
+        _log(f"[{device_type}] Incremental fetch from {fetch_from.isoformat()}")
 
     if fetch_from >= now:
-        print(f"[{device_type}] Already up to date.")
+        _log(f"[{device_type}] Already up to date.")
         return 0, 0
 
     df = client.collect_historical_to_df(device_type, fetch_from, now)
     if df.empty:
-        print(f"[{device_type}] No new rows from API.")
+        _log(f"[{device_type}] No new rows from API.")
         return 0, 0
 
     # ── Write to Parquet store ────────────────────────────────────────────────
@@ -368,10 +425,11 @@ def ingest_and_rebuild_bronze(
     df_ts["timestamp"] = pd.to_datetime(df_ts["timestamp"])
     for day_val, group in df_ts.groupby(df_ts["timestamp"].dt.date):
         partition_dt = datetime(day_val.year, day_val.month, day_val.day)
+        _log(f"[{device_type}] Writing parquet partition for {partition_dt.date()} with {len(group)} rows")
         save_dataframe(group.reset_index(drop=True), device_type, partition_dt)
 
     # ── Rebuild bronze DuckDB table from full Parquet store ───────────────────
-    print(f"[{device_type}] Rebuilding bronze table from Parquet store …")
+    _log(f"[{device_type}] Rebuilding bronze table from Parquet store ...")
     counts = build_bronze_from_parquet([device_type], rebuild=True)
     bronze_rows = counts.get(device_type, 0)
 
@@ -381,7 +439,7 @@ def ingest_and_rebuild_bronze(
     if flush_force:
         flushed += flush_staged_data(device_type, force=True)
 
-    print(f"[{device_type}] Done — {len(df)} parquet rows, bronze table: {bronze_rows} rows total")
+    _log(f"[{device_type}] Done - {len(df)} parquet rows, bronze table: {bronze_rows} rows total")
     return len(df), flushed
 
 
@@ -412,10 +470,10 @@ def downstream_needs_update(device_type: str) -> tuple[bool, str]:
 
 
 def run_downstream_layers(device_type: str, rebuild: bool = False) -> None:
-    """Run bronze→silver then silver→gold for a single device type."""
-    print(f"[{device_type}] Running bronze → silver ...")
+    """Run bronze->silver then silver->gold for a single device type."""
+    _log(f"[{device_type}] Running bronze -> silver ...")
     run_bronze_to_silver(device_type, rebuild=rebuild)
-    print(f"[{device_type}] Running silver → gold ...")
+    _log(f"[{device_type}] Running silver -> gold ...")
     run_silver_to_gold(device_type, rebuild=rebuild)
 
 
@@ -450,17 +508,23 @@ def main():
     parser.add_argument("--force-rebuild", action="store_true", help="Force bronze table rebuild even if timestamps match")
     parser.add_argument("--stage-max-rows",         type=int, default=DEFAULT_STAGE_MAX_ROWS)
     parser.add_argument("--stage-max-age-seconds",  type=int, default=DEFAULT_STAGE_MAX_AGE_SECONDS)
+    parser.add_argument("--log-path", default="api_ingestion.log", help="Path to the ingestion log file")
     args = parser.parse_args()
 
     if args.full_history and args.history_start is not None:
         parser.error("--full-history and --history-start cannot be used together")
 
-    bootstrap_start = FULL_HISTORY_START if (args.full_history or args.initialize) else args.history_start
+    bootstrap_start = args.history_start
+    if bootstrap_start is None and (args.full_history or args.initialize):
+        bootstrap_start = FULL_HISTORY_START
 
     device_types  = DEVICE_TYPES if args.all else [args.device_type]
     flush_at_exit = args.poll == 0  # always flush on one-shot runs
     client        = SmartILabAPIClient(BASE_URL, API_KEY)
+    configure_logging(args.log_path)
+    _log(f"Starting api_ingestion with device_types={device_types}, initialize={args.initialize}, poll={args.poll}, force_rebuild={args.force_rebuild}, log_path={args.log_path}")
     ensure_database_layout()
+    _log("Database layout ensured")
 
     def run_once():
         total_parquet = total_flushed = 0
@@ -468,12 +532,13 @@ def main():
             parquet_rows = 0
             flushed_rows = 0
             needs_update, reason = check_needs_update(device_type, client)
-            print(f"\n[{device_type}] {reason}")
+            _log(f"\n[{device_type}] {reason}")
             downstream_update, downstream_reason = downstream_needs_update(device_type)
             if downstream_update:
-                print(f"[{device_type}] {downstream_reason}")
+                _log(f"[{device_type}] {downstream_reason}")
 
             if needs_update or args.force_rebuild or args.initialize:
+                _log(f"[{device_type}] Starting ingest cycle")
                 parquet_rows, flushed_rows = ingest_and_rebuild_bronze(
                     device_type=device_type,
                     client=client,
@@ -486,7 +551,7 @@ def main():
                 total_parquet += parquet_rows
                 total_flushed += flushed_rows
             else:
-                print(f"[{device_type}] Skipping ingest.")
+                _log(f"[{device_type}] Skipping ingest.")
 
             if (
                 args.initialize
@@ -497,10 +562,10 @@ def main():
             ):
                 run_downstream_layers(device_type, rebuild=args.initialize or args.force_rebuild)
 
-        print(f"\nIngestion complete — {total_parquet} parquet rows written, {total_flushed} flushed to bronze, downstream layers refreshed as needed.")
+        _log(f"\nIngestion complete - {total_parquet} parquet rows written, {total_flushed} flushed to bronze, downstream layers refreshed as needed.")
 
     if args.poll > 0:
-        print(f"Polling every {args.poll} minute(s). Ctrl+C to stop.")
+        _log(f"Polling every {args.poll} minute(s). Ctrl+C to stop.")
         while True:
             run_once()
             time.sleep(args.poll * 60)

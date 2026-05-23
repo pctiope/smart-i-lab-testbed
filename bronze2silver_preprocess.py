@@ -103,6 +103,19 @@ PREPROCESS_FN = {
 }
 
 
+def run_zone5_training_preprocess(rebuild: bool = False) -> pd.DataFrame:
+    """
+    Build the migrated Zone 5 training input in Silver from BSG tables only.
+
+    This is the root-side replacement for the old CSV-based training-input join.
+    """
+    migrated = _im("zone5_training_migrated")
+    print("\n[zone5] Building migrated training input in silver ...")
+    frame = migrated.build_zone5_training_input_from_silver(rebuild=rebuild)
+    print(f"  [zone5] {migrated.SILVER_TRAINING_INPUT}: {len(frame):,} rows")
+    return frame
+
+
 # =============================================================================
 # Bronze → Silver write
 # =============================================================================
@@ -182,14 +195,14 @@ def run_bronze_to_silver(device_type: str, rebuild: bool = False):
     else:
         print(f"  [preprocess] Applying {preprocess_fn.__name__} …")
         df_silver = preprocess_fn(df_bronze)
-        print(f"  [preprocess] {len(df_bronze):,} → {len(df_silver):,} rows after preprocessing")
+        print(f"  [preprocess] {len(df_bronze):,} -> {len(df_silver):,} rows after preprocessing")
 
     # ── Step 3: Push to silver ────────────────────────────────────────────────
     _push_to_silver(df_silver, device_type, rebuild=rebuild)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Bronze → Silver preprocessing pipeline")
+    parser = argparse.ArgumentParser(description="Bronze -> Silver preprocessing pipeline")
     parser.add_argument("--device-type", default=None, choices=DEVICE_TYPES,
                         help="Process a single device type (default: all)")
     parser.add_argument("--rebuild", action="store_true",
@@ -199,7 +212,7 @@ def main():
     device_types = [args.device_type] if args.device_type else DEVICE_TYPES
 
     print("=" * 60)
-    print("Bronze → Silver Preprocessing Pipeline")
+    print("Bronze -> Silver Preprocessing Pipeline")
     print("=" * 60)
 
     for device_type in device_types:

@@ -3,6 +3,17 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+cat <<'EOF'
+This package-local live collector wrapper is archived in the desktop repo copy.
+
+It builds CSV training artifacts and is no longer the active path.
+Use the repository-root DuckDB Bronze/Silver/Gold pipeline instead:
+  python api_ingestion.py --all --initialize
+  python api_ingestion.py --all --poll 5
+  python -c "from bronze2silver_preprocess import run_zone5_training_preprocess; run_zone5_training_preprocess(rebuild=True)"
+EOF
+exit 1
+
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"

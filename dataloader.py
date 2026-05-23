@@ -40,10 +40,8 @@ from importlib import import_module as _im
 
 import pandas as pd
 
-# ── DataLoader is always read-only: set this BEFORE importing the storage
-#    module so its module-level duckdb.connect() uses :memory: instead of
-#    the file that the live ingest pipeline holds locked. ─────────────────────
-os.environ["DUCKDB_READ_ONLY"] = "1"
+# ── Read-only mode is opt-in via DUCKDB_READ_ONLY=1 in the caller's
+#    environment before this module is imported. ─────────────────────────────
 
 # ── Storage layer ─────────────────────────────────────────────────────────────
 _storage = _im("CSV Training Data Code")
@@ -52,6 +50,7 @@ DEVICE_TYPES         = _storage.DEVICE_TYPES
 query_silver         = _storage.query_silver
 query_gold           = _storage.query_gold
 query_bronze         = _storage.query_bronze
+query_table          = _storage.query_table
 training_data_loader = _storage.training_data_loader
 _db                  = _storage._db
 _q                   = _storage._q
@@ -59,6 +58,7 @@ _silver_table        = _storage._silver_table
 _gold_table          = _storage._gold_table
 _bronze_table        = _storage._bronze_table
 _table_exists        = _storage._table_exists
+training_table_name  = _storage.training_table_name
 
 
 class DataLoader:
@@ -199,6 +199,56 @@ class DataLoader:
         except Exception as exc:
             print(f"[DataLoader] SQL error: {exc}")
             return pd.DataFrame()
+
+    def load_table(
+        self,
+        table_name: str,
+        *,
+        columns: list[str] | None = None,
+        time_start: datetime | None = None,
+        time_end: datetime | None = None,
+        latest_n: int | None = None,
+        timestamp_column: str | None = "timestamp",
+        filters: dict | None = None,
+        order_by: str | None = None,
+    ) -> pd.DataFrame:
+        """Read an arbitrary DuckDB table, including migrated training tables."""
+        return query_table(
+            table_name,
+            columns=columns,
+            time_start=time_start,
+            time_end=time_end,
+            latest_n=latest_n,
+            timestamp_column=timestamp_column,
+            filters=filters,
+            order_by=order_by,
+        )
+
+    def load_training_table(
+        self,
+        pipeline_name: str,
+        dataset_name: str,
+        *,
+        layer: str = "silver",
+        columns: list[str] | None = None,
+        time_start: datetime | None = None,
+        time_end: datetime | None = None,
+        latest_n: int | None = None,
+        timestamp_column: str | None = "timestamp",
+        filters: dict | None = None,
+        order_by: str | None = None,
+    ) -> pd.DataFrame:
+        """Read a migrated training table by its logical pipeline and dataset names."""
+        return self.load_table(
+            training_table_name(pipeline_name, dataset_name, layer=layer),
+            columns=columns,
+            time_start=time_start,
+            time_end=time_end,
+            latest_n=latest_n,
+            timestamp_column=timestamp_column,
+            filters=filters,
+            order_by=order_by,
+        )
 
     def load_training_config(self, config: dict) -> pd.DataFrame:
         """

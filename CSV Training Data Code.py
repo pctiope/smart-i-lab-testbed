@@ -24,6 +24,7 @@ USE_REMOTE      = False
 LOCAL_DATA_PATH = Path("data")
 DUCKDB_PATH     = Path("smart_ilab.duckdb")
 LOCAL_STAGE_PATH = Path("stage")
+LOCAL_TRAINING_TABLE_PATH = LOCAL_DATA_PATH / "_training_tables"
 
 # MinIO / S3 credentials — only used when USE_REMOTE=True
 S3_ENDPOINT   = "http://localhost:9000"
@@ -95,6 +96,33 @@ def _gold_table(device_type: str) -> str:
     return "gold." + device_type.replace("-", "_")
 
 
+def _sanitize_identifier_component(value: str) -> str:
+    """Convert an arbitrary label into a DuckDB-safe identifier component."""
+    sanitized = "".join(ch if ch.isalnum() else "_" for ch in str(value).strip().lower())
+    sanitized = sanitized.strip("_")
+    if not sanitized:
+        raise ValueError("Identifier component cannot be empty")
+    return sanitized
+
+
+def training_table_name(pipeline_name: str, dataset_name: str, layer: str = "silver") -> str:
+    """
+    Resolve a migrated training table name inside the silver or gold schema.
+
+    Examples
+    --------
+    training_table_name("zone5", "training_input")
+      -> "silver.zone5_training_input"
+    training_table_name("zone5", "model_output", layer="gold")
+      -> "gold.zone5_model_output"
+    """
+    if layer not in {"silver", "gold"}:
+        raise ValueError("training_table_name layer must be 'silver' or 'gold'")
+    pipeline = _sanitize_identifier_component(pipeline_name)
+    dataset = _sanitize_identifier_component(dataset_name)
+    return f"{layer}.{pipeline}_{dataset}"
+
+
 def _q(name: str) -> str:
     """Quote a DuckDB identifier, handling optional schema.table notation."""
     parts = name.split(".")
@@ -124,6 +152,27 @@ def _partition_dir(device_type: str, dt: datetime) -> Path:
 
 def _stage_dir(device_type: str) -> Path:
     return LOCAL_STAGE_PATH / device_type
+
+
+def _training_table_snapshot_path(table_name: str) -> Path:
+    if "." in table_name:
+        schema_name, table_basename = table_name.split(".", 1)
+    else:
+        schema_name, table_basename = "main", table_name
+    return LOCAL_TRAINING_TABLE_PATH / schema_name / f"{table_basename}.parquet"
+
+
+def _delete_training_table_snapshot(table_name: str) -> None:
+    snapshot_path = _training_table_snapshot_path(table_name)
+    if snapshot_path.exists():
+        snapshot_path.unlink()
+
+
+def _write_training_table_snapshot(df: pd.DataFrame, table_name: str) -> Path:
+    snapshot_path = _training_table_snapshot_path(table_name)
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(snapshot_path, index=False, engine="pyarrow")
+    return snapshot_path
 
 
 # =============================================================================
@@ -254,7 +303,7 @@ def build_bronze_from_parquet(device_types=None, rebuild: bool = False) -> dict:
         if not _table_exists(table_name):
             _db.execute(
                 f"CREATE TABLE {quoted_table} AS "
-                f"SELECT * FROM read_parquet('{glob_path}', hive_partitioning=true)"
+                f"SELECT * FROM read_parquet('{glob_path}', hive_partitioning=true, union_by_name=true)"
             )
         else:
             _db.execute(
@@ -262,7 +311,7 @@ def build_bronze_from_parquet(device_types=None, rebuild: bool = False) -> dict:
                 f"SELECT DISTINCT * FROM ("
                 f"  SELECT * FROM {quoted_table} "
                 f"  UNION ALL "
-                f"  SELECT * FROM read_parquet('{glob_path}', hive_partitioning=true)"
+                f"  SELECT * FROM read_parquet('{glob_path}', hive_partitioning=true, union_by_name=true)"
                 f")"
             )
 
@@ -442,6 +491,201 @@ def _run_select(sql: str, params=None) -> pd.DataFrame:
         return _db.execute(sql, params or []).df()
     except Exception as exc:
         print(f"Query error: {exc}")
+        return pd.DataFrame()
+
+
+def _build_select_sql(
+    table_name: str,
+    *,
+    columns=None,
+    time_start=None,
+    time_end=None,
+    latest_n: int | None = None,
+    timestamp_column: str | None = "timestamp",
+    filters: dict[str, object | list[object] | tuple[object, ...] | set[object]] | None = None,
+    order_by: str | None = None,
+) -> tuple[str, list[object]]:
+    col_expr = ", ".join(columns) if columns else "*"
+    from_sql = _q(table_name)
+    conditions: list[str] = []
+    params: list[object] = []
+
+    if timestamp_column:
+        quoted_ts = _q(timestamp_column)
+        if time_start is not None:
+            conditions.append(f"{quoted_ts} >= ?")
+            params.append(pd.to_datetime(time_start))
+        if time_end is not None:
+            conditions.append(f"{quoted_ts} <= ?")
+            params.append(pd.to_datetime(time_end))
+
+    for column_name, raw_value in (filters or {}).items():
+        quoted_column = _q(column_name)
+        if isinstance(raw_value, (list, tuple, set)):
+            values = list(raw_value)
+            if not values:
+                conditions.append("1 = 0")
+                continue
+            conditions.append(f"{quoted_column} IN ({', '.join('?' for _ in values)})")
+            params.extend(values)
+        else:
+            conditions.append(f"{quoted_column} = ?")
+            params.append(raw_value)
+
+    where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+    order_expr = order_by or (timestamp_column if timestamp_column else None)
+
+    if latest_n is not None:
+        if order_expr is None:
+            raise ValueError("latest_n requires timestamp_column or explicit order_by")
+        inner = (
+            f"SELECT {col_expr} FROM {from_sql}{where} "
+            f"ORDER BY {_q(order_expr)} DESC LIMIT {int(latest_n)}"
+        )
+        if order_expr:
+            sql = f"SELECT {col_expr} FROM ({inner}) ORDER BY {_q(order_expr)}"
+        else:
+            sql = inner
+    else:
+        sql = f"SELECT {col_expr} FROM {from_sql}{where}"
+        if order_expr:
+            sql += f" ORDER BY {_q(order_expr)}"
+
+    return sql, params
+
+
+def query_table(
+    table_name: str,
+    *,
+    columns=None,
+    time_start=None,
+    time_end=None,
+    latest_n: int | None = None,
+    timestamp_column: str | None = "timestamp",
+    filters: dict[str, object | list[object] | tuple[object, ...] | set[object]] | None = None,
+    order_by: str | None = None,
+) -> pd.DataFrame:
+    """Generic query helper for migrated training tables in DuckDB."""
+    if not _table_exists(table_name):
+        if _read_only:
+            snapshot_path = _training_table_snapshot_path(table_name)
+            if snapshot_path.exists():
+                return _query_training_table_snapshot(
+                    snapshot_path,
+                    columns=columns,
+                    time_start=time_start,
+                    time_end=time_end,
+                    latest_n=latest_n,
+                    timestamp_column=timestamp_column,
+                    filters=filters,
+                    order_by=order_by,
+                )
+        print(f"[query_table] Table {table_name} does not exist")
+        return pd.DataFrame()
+    sql, params = _build_select_sql(
+        table_name,
+        columns=columns,
+        time_start=time_start,
+        time_end=time_end,
+        latest_n=latest_n,
+        timestamp_column=timestamp_column,
+        filters=filters,
+        order_by=order_by,
+    )
+    return _run_select(sql, params)
+
+
+def upsert_table_dataframe(
+    df: pd.DataFrame,
+    table_name: str,
+    *,
+    key_columns: list[str] | tuple[str, ...] | None = None,
+    rebuild: bool = False,
+) -> int:
+    """
+    Create or replace matching rows in an arbitrary DuckDB table.
+
+    When key_columns are supplied, incoming rows replace existing rows with the
+    same key before the batch is inserted. This matches the legacy CSV append
+    behavior where a late-arriving row overwrites the previous version.
+    """
+    if df.empty:
+        if rebuild:
+            if _table_exists(table_name):
+                _db.execute(f"DROP TABLE {_q(table_name)}")
+            _delete_training_table_snapshot(table_name)
+        return 0
+
+    prepared = df.copy()
+    if "timestamp" in prepared.columns:
+        prepared["timestamp"] = pd.to_datetime(prepared["timestamp"])
+    normalized_keys = list(key_columns or [])
+    for key_column in normalized_keys:
+        if key_column not in prepared.columns:
+            raise ValueError(f"Key column '{key_column}' is missing from the DataFrame")
+    if normalized_keys:
+        prepared = prepared.drop_duplicates(subset=normalized_keys, keep="last")
+
+    quoted_table = _q(table_name)
+    if rebuild and _table_exists(table_name):
+        _db.execute(f"DROP TABLE {quoted_table}")
+
+    temp_view = f"upsert_{uuid4().hex}"
+    _register_df(temp_view, prepared)
+    quoted_temp = _q(temp_view)
+    try:
+        if not _table_exists(table_name):
+            _db.execute(f"CREATE TABLE {quoted_table} AS SELECT * FROM {quoted_temp}")
+            _write_training_table_snapshot(_db.execute(f"SELECT * FROM {quoted_table}").df(), table_name)
+            return len(prepared)
+
+        if normalized_keys:
+            join_sql = " AND ".join(
+                f"target.{_q(column)} = source.{_q(column)}" for column in normalized_keys
+            )
+            _db.execute(
+                f"DELETE FROM {quoted_table} AS target USING {quoted_temp} AS source WHERE {join_sql}"
+            )
+
+        before = _db.execute(f"SELECT COUNT(*) FROM {quoted_table}").fetchone()[0]
+        _db.execute(f"INSERT INTO {quoted_table} BY NAME SELECT * FROM {quoted_temp}")
+        after = _db.execute(f"SELECT COUNT(*) FROM {quoted_table}").fetchone()[0]
+        _write_training_table_snapshot(_db.execute(f"SELECT * FROM {quoted_table}").df(), table_name)
+        return max(0, after - before)
+    finally:
+        _db.unregister(temp_view)
+
+
+def _query_training_table_snapshot(
+    snapshot_path: Path,
+    *,
+    columns=None,
+    time_start=None,
+    time_end=None,
+    latest_n: int | None = None,
+    timestamp_column: str | None = "timestamp",
+    filters: dict[str, object | list[object] | tuple[object, ...] | set[object]] | None = None,
+    order_by: str | None = None,
+) -> pd.DataFrame:
+    snapshot_glob = str(snapshot_path).replace("\\", "/")
+    try:
+        con = duckdb.connect(":memory:")
+        con.execute(f"CREATE VIEW snapshot_view AS SELECT * FROM read_parquet('{snapshot_glob}')")
+        sql, params = _build_select_sql(
+            "snapshot_view",
+            columns=columns,
+            time_start=time_start,
+            time_end=time_end,
+            latest_n=latest_n,
+            timestamp_column=timestamp_column,
+            filters=filters,
+            order_by=order_by,
+        )
+        result = con.execute(sql, params).df()
+        con.close()
+        return result
+    except Exception as exc:
+        print(f"[query_table] Snapshot query error for {snapshot_path}: {exc}")
         return pd.DataFrame()
 
 

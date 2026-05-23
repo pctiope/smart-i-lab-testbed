@@ -80,6 +80,21 @@ PREPROCESS_FN = {
 }
 
 
+def run_zone5_training_postprocess(rebuild: bool = False) -> pd.DataFrame:
+    """
+    Promote the migrated Zone 5 training output from Silver to Gold.
+
+    No extra post-processing is currently defined, so this copies only the
+    output dump table to Gold and intentionally leaves intermediate tables in
+    Silver.
+    """
+    migrated = _im("zone5_training_migrated")
+    print("\n[zone5] Copying migrated training output silver -> gold ...")
+    frame = migrated.copy_training_output_to_gold(rebuild=rebuild)
+    print(f"  [zone5] {migrated.GOLD_TRAINING_OUTPUT}: {len(frame):,} rows")
+    return frame
+
+
 def _push_to_gold(df: pd.DataFrame, device_type: str, rebuild: bool):
     """Write a curated DataFrame into the gold DuckDB table."""
     from uuid import uuid4
@@ -152,7 +167,7 @@ def run_silver_to_gold(device_type: str, rebuild: bool = False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Silver → Gold preprocessing pipeline")
+    parser = argparse.ArgumentParser(description="Silver -> Gold preprocessing pipeline")
     parser.add_argument("--device-type", default=None, choices=DEVICE_TYPES,
                         help="Process a single device type (default: all)")
     parser.add_argument("--rebuild", action="store_true",
@@ -162,7 +177,7 @@ def main():
     device_types = [args.device_type] if args.device_type else DEVICE_TYPES
 
     print("=" * 60)
-    print("Silver → Gold Preprocessing Pipeline")
+    print("Silver -> Gold Preprocessing Pipeline")
     print("=" * 60)
 
     for device_type in device_types:

@@ -3,6 +3,14 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+cat <<'EOF'
+This package-local training wrapper is archived in the desktop repo copy.
+
+Do not use zone5.training or CSV inputs from zone5_cv_time_features_package/.
+Use the repository-root DuckDB SQL-only pipeline described in README/README_training_migrated.md.
+EOF
+exit 1
+
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 OUTPUT_DIR="model"
 PREV=""

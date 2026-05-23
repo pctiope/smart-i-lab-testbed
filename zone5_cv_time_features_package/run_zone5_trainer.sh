@@ -3,6 +3,17 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+cat <<'EOF'
+This package-local trainer wrapper is archived in the desktop repo copy.
+
+Use the root DuckDB SQL-only pipeline instead:
+  python smoke_train_runtime.py --rebuild --lookback 12 --safety-rows 3 --report-path test_runs/zone5_duckdb_smoke/runtime_smoke_report.json
+  python -c "from bronze2silver_preprocess import run_zone5_training_preprocess; run_zone5_training_preprocess(rebuild=True)"
+
+The active migrated pipeline lives at the repository root and no longer uses CSV training inputs.
+EOF
+exit 1
+
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 if [[ -d ".python-packages" ]]; then
   export PYTHONPATH="$PWD/.python-packages:$PWD${PYTHONPATH:+:$PYTHONPATH}"

@@ -1,5 +1,9 @@
 duckdb
 minio
 pandas
+optuna
 pyarrow
 requests
+scikit-learn
+scipy
+torch

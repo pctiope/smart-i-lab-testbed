@@ -1,5 +1,17 @@
 # Zone 5 Pipeline
 
+## Legacy Notice
+
+This document describes the archived package-local CSV pipeline.
+
+For the active desktop repo copy, use the repository-root DuckDB SQL-only migration path documented in:
+
+- `README/README_db.md`
+- `README/RUNTIME_GUIDE.md`
+- `README/README_training_migrated.md`
+
+The package-local collector and trainer wrappers in `zone5_cv_time_features_package/` are disabled in this desktop copy so the active path does not depend on CSV files.
+
 This document describes the end-to-end Zone 5 occupancy pipeline in this
 package: live collection, feature building, training, validation, promotion,
 and inference. It is the conceptual map; `DEPLOYMENT.md` and `DOCKER.md`
