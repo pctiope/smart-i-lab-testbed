@@ -1,0 +1,315 @@
+\documentclass[aspectratio=169]{beamer}
+\usetheme{metropolis}
+\input{smart-ilab-presentation-shared.tex}
+
+\title{Smart i-LAB AIR1 All-Zones}
+\subtitle{Technical overview for dashboard, labels, architecture, and ML pipeline}
+\author{pctiope/smart-i-lab-testbed}
+\date{May 2026}
+
+\begin{document}
+
+\decktitleframe{AIR1 All-Zones Technical Overview}{Smart i-LAB AIR1 All-Zones}{Dashboard, shared API context, architecture,\\labels, pipeline, and verification}{../../../Smart-iLab_DigitalTwin/assets/smart_ilab_3d/Smart_I-LAB_floor3d_room_8_44.jpg}
+
+\begin{frame}{Objective}
+\begin{columns}[T,onlytextwidth]
+\column{0.45\textwidth}
+\begin{block}{Review question}
+How does the AIR1 all-zones package turn two camera feeds and AIR-1 sensor rows
+into per-zone labels, a shared model, and an operator dashboard?
+\end{block}
+\tightsep
+\chip{AIR1 only}
+\hspace{0.4em}
+\chip{All zones}
+\hspace{0.4em}
+\chip{No runtime secrets}
+
+\column{0.51\textwidth}
+\begin{itemize}
+  \item Keep the API/backend foundation minimal and scoped to AIR1 data access.
+  \item Explain the two-camera, per-zone dashboard and label flow.
+  \item Show the long-form \code{timestamp + zone_id} training contract.
+  \item Keep Zone 5 CI/CD and deployment material out of this deck.
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\sectionframe{01}{Dashboard And API Context}
+
+\begin{frame}[shrink=8]{AIR1 All-Zones Dashboard}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\begin{tikzpicture}
+  \node[anchor=west] at (0,0) {\includegraphics[width=0.94\linewidth,height=0.24\textheight,keepaspectratio]{../../../air1_all_zones_cv_time_features_package/masks/cam1-mask-zones.png}};
+  \node[anchor=west] at (0,-1.70) {\includegraphics[width=0.94\linewidth,height=0.24\textheight,keepaspectratio]{../../../air1_all_zones_cv_time_features_package/masks/cam2-mask-zones.png}};
+  \node[anchor=south west,fill=ILABNavy,text=white,inner sep=2pt,font=\tiny] at (0.1,0.72) {cam1 zones};
+  \node[anchor=south west,fill=ILABNavy,text=white,inner sep=2pt,font=\tiny] at (0.1,-0.98) {cam2 zones};
+\end{tikzpicture}
+\vspace{0.2em}
+
+{\tiny\textcolor{ILABSteel}{Tracked AIR1 zone masks define the dashboard's per-zone camera coverage.}\par}
+
+\column{0.48\textwidth}
+\textbf{Operational view}
+\begin{itemize}
+  \item One shared AIR1 model reports per-zone probabilities for zones 1--15.
+  \item Two camera streams feed separate zone masks and one per-zone label table.
+  \item The app can remain up while model readiness is blocked by a missing production pointer.
+\end{itemize}
+\tightsep
+\textbf{Important separation}
+\begin{itemize}
+  \item AIR1 excludes power and mmWave from model inputs.
+  \item Missing camera coverage remains null; it is not converted to vacant.
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}[shrink=4]{Shared API Context}
+\begin{columns}[T,onlytextwidth]
+\column{0.44\textwidth}
+\textbf{Purpose}
+\begin{itemize}
+  \item AIR-1 and SEN55 data provide environmental feature rows for all model zones.
+  \item Package-local collectors normalize source data into the all-zones contract.
+  \item Runtime clients keep API keys and camera details in local environment files.
+\end{itemize}
+
+\column{0.52\textwidth}
+\centering
+\resizebox{0.94\linewidth}{!}{%
+\begin{tikzpicture}[node distance=0.72cm and 0.92cm]
+  \node[ilabbox,minimum width=2.55cm] (devices) {AIR-1 zones\\SEN55};
+  \node[ilabbox,right=of devices,minimum width=2.65cm,fill=ILABOrange!10,draw=ILABOrange] (api) {IoT1 REST API};
+  \node[ilabstore,right=of api,minimum width=2.5cm] (db) {TimescaleDB\\history};
+  \node[ilabbox,below=of api,minimum width=2.65cm] (air1) {AIR1 all-zones\\collectors + app};
+  \draw[ilabflow] (devices) -- (api);
+  \draw[ilabflow] (api) -- (db);
+  \draw[ilabflow] (api) -- (air1);
+  \draw[ilabthinflow] (db.south) to[bend left=18] (air1.east);
+\end{tikzpicture}
+}
+\end{columns}
+\end{frame}
+
+\sectionframe{02}{AIR1 Architecture}
+
+\begin{frame}{AIR1 User And Data Flow}
+\centering
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[
+  node distance=0.70cm and 0.85cm,
+  laneTitle/.style={font=\bfseries\scriptsize,text=ILABNavy},
+  box/.style={ilabbox,minimum width=2.45cm}
+]
+  \node[laneTitle] at (0,2.0) {Users};
+  \node[laneTitle] at (3.05,2.0) {Dashboard};
+  \node[laneTitle] at (6.30,2.0) {Runtime};
+  \node[laneTitle] at (9.72,2.0) {Data/ML};
+
+  \node[box] (operator) at (0,0.80) {AIR1\\operator};
+  \node[box] (researcher) at (0,-0.72) {researcher\\review};
+  \node[box] (ui) at (3.05,0.10) {AIR1\\dashboard};
+  \node[box,fill=ILABOrange!12,draw=ILABOrange] (app) at (6.30,0.10) {FastAPI\\all-zones app};
+  \node[box] (video) at (6.30,-1.32) {two file-backed\\MJPEG feeds};
+  \node[ilabstore,minimum width=2.55cm] (features) at (9.72,0.85) {AIR-1 + SEN55\\long-form rows};
+  \node[box] (labels) at (9.72,-0.35) {per-zone\\CV labels};
+  \node[box] (model) at (9.72,-1.55) {shared model\\production pointer};
+
+  \draw[ilabflow] (operator) -- (ui);
+  \draw[ilabthinflow] (researcher) -- (ui);
+  \draw[ilabflow] (ui) -- (app);
+  \draw[ilabflow] (app) -- (features);
+  \draw[ilabflow] (app) -- (labels);
+  \draw[ilabflow] (model) -- (app);
+  \draw[ilabthinflow] (video) -- (ui);
+\end{tikzpicture}
+}
+\end{frame}
+
+\begin{frame}{AIR1 Runtime Architecture}
+\centering
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.62cm and 0.78cm]
+  \node[ilabbox,minimum width=2.30cm] (air1) {AIR-1\\zones 1--15};
+  \node[ilabbox,below=of air1,minimum width=2.30cm] (sen55) {SEN55\\environment};
+  \node[ilabbox,right=of air1,yshift=-0.42cm,minimum width=2.45cm] (collector) {all-zones\\collector};
+  \node[ilabbox,right=of collector,minimum width=2.60cm] (table) {long-form rows\\\code{timestamp + zone_id}};
+  \node[ilabbox,above right=0.26cm and 0.82cm of table,minimum width=2.55cm] (app) {FastAPI app\\inference loop};
+  \node[ilabbox,below right=0.26cm and 0.82cm of table,minimum width=2.55cm] (cv) {cam1 + cam2\\zone trackers};
+  \node[ilabbox,right=of app,minimum width=2.60cm] (ui) {AIR1\\dashboard};
+  \node[ilabbox,right=of cv,minimum width=2.60cm] (model) {shared model\\zones 1--15};
+
+  \draw[ilabflow] (air1) -- (collector);
+  \draw[ilabflow] (sen55) -- (collector);
+  \draw[ilabflow] (collector) -- (table);
+  \draw[ilabflow] (table) -- (app);
+  \draw[ilabflow] (cv) -- (app);
+  \draw[ilabflow] (model) -- (app);
+  \draw[ilabflow] (app) -- (ui);
+\end{tikzpicture}
+}
+\tightsep
+\begin{center}
+\chip{Two cameras}
+\hspace{0.5em}
+\chip{Zones 1--15}
+\hspace{0.5em}
+\chip{Long-form rows}
+\hspace{0.5em}
+\chip{No power/mmWave}
+\end{center}
+\end{frame}
+
+\sectionframe{03}{Labels And Pipeline}
+
+\begin{frame}{AIR1 Labels}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{CV truth}
+\begin{itemize}
+  \item Two cameras, per-zone masks, and one label table keyed by \code{timestamp + zone_id}.
+  \item Target is \code{occupied}.
+  \item Occupied when per-zone median \code{occupancy_count >= 1}.
+\end{itemize}
+
+\column{0.48\textwidth}
+\textbf{Null handling}
+\begin{itemize}
+  \item A row with no matching CV label keeps \code{occupied = null}.
+  \item Missing camera coverage is not converted into a negative label.
+  \item Table 16 is excluded from the model-zone contract.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{center}
+\resizebox{0.88\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.8cm]
+  \node[ilabbox,minimum width=2.4cm] (rtsp) {cam1 / cam2\\RTSP frames};
+  \node[ilabbox,right=of rtsp,minimum width=2.4cm] (mask) {zone masks\\+ YOLO};
+  \node[ilabbox,right=of mask,minimum width=2.4cm] (bucket) {10-second\\buckets};
+  \node[ilabbox,right=of bucket,minimum width=2.4cm] (label) {\code{occupied}\\by zone};
+  \draw[ilabflow] (rtsp) -- (mask);
+  \draw[ilabflow] (mask) -- (bucket);
+  \draw[ilabflow] (bucket) -- (label);
+\end{tikzpicture}
+}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=3]{All-Zones Feature Contract}
+\begin{columns}[T,onlytextwidth]
+\column{0.46\textwidth}
+\textbf{Input families}
+\begin{itemize}
+  \item AIR-1: temperature, humidity, CO2, PM2.5.
+  \item SEN55: particulate, environment, VOC, NOx.
+  \item Missing indicators remain part of the AIR1 feature contract.
+  \item Time: hour and day-of-week cycles.
+\end{itemize}
+
+\column{0.50\textwidth}
+\begin{block}{Contract guards}
+\begin{itemize}
+  \item Rows are long-form: one \code{timestamp + zone_id} pair per zone.
+  \item Valid model zones are \code{1--15}.
+  \item \code{zone_id} supports grouping, splits, audits, and display only.
+  \item Power and mmWave are excluded.
+\end{itemize}
+\end{block}
+\end{columns}
+\end{frame}
+
+\begin{frame}{AIR1 All-Zones Pipeline}
+\centering
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.58cm and 0.70cm]
+  \node[ilabbox,minimum width=2.2cm] (cam1) {cam1\\zone mask};
+  \node[ilabbox,below=of cam1,minimum width=2.2cm] (cam2) {cam2\\zone mask};
+  \node[ilabbox,right=1.0cm of cam1,yshift=-0.40cm,minimum width=2.4cm] (labels) {per-zone\\CV labels};
+  \node[ilabbox,right=of labels,minimum width=2.4cm] (features) {AIR-1 + SEN55\\long-form rows};
+  \node[ilabbox,right=of features,minimum width=2.4cm] (shared) {shared model\\zones 1--15};
+  \node[ilabbox,right=of shared,minimum width=2.4cm] (serve) {ops dashboard\\two feeds};
+  \draw[ilabflow] (cam1) -- (labels);
+  \draw[ilabflow] (cam2) -- (labels);
+  \draw[ilabflow] (labels) -- (features);
+  \draw[ilabflow] (features) -- (shared);
+  \draw[ilabflow] (shared) -- (serve);
+\end{tikzpicture}
+}
+\tightsep
+\small
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Pipeline guard} & \textbf{Why it matters} \\
+\midrule
+Windows are built within each \code{zone_id} & Avoids mixing table histories inside one temporal sequence. \\
+Production pointer gates inference & The UI can be healthy before a promoted model exists. \\
+Retrain/promotion are explicit operations & Collection and dashboard uptime are not tied to automatic promotion. \\
+\bottomrule
+\end{tabularx}
+\end{frame}
+
+\sectionframe{04}{Verification And Roadmap}
+
+\begin{frame}{Verification Gates}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{Contract checks}
+\begin{itemize}
+  \item \code{test_all_zones_contract.py} covers features, labels, zone masks, windows, and runtime payloads.
+  \item Smoke checks reject candidates with the wrong target column.
+  \item Package docs preserve the no-power/no-mmWave AIR1 boundary.
+\end{itemize}
+
+\column{0.48\textwidth}
+\textbf{Runtime checks}
+\begin{itemize}
+  \item \code{/api/health} reports readiness, history size, and latest runtime errors.
+  \item The dashboard can show camera freshness even when inference is waiting for a promoted model.
+  \item Person counters keep writing annotated frames during upstream outages.
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Roadmap And Risks}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{Near-term roadmap}
+\begin{itemize}
+  \item Promote a production AIR1 all-zones model after sufficient strict-window evidence.
+  \item Keep tracker, collector, trainer, and app service health visible.
+  \item Add model freshness and upstream API latency monitoring.
+\end{itemize}
+
+\column{0.48\textwidth}
+\textbf{Risks to keep visible}
+\begin{itemize}
+  \item Label quality depends on two camera streams and per-zone mask coverage.
+  \item Training quality depends on both-class labels across usable calendar windows.
+  \item Missing production pointers should degrade inference, not dashboard availability.
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Source Anchors}
+\scriptsize
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Topic} & \textbf{Primary source paths} \\
+\midrule
+Dashboard and runtime & \pathref{air1/.../web_app/}, \pathref{air1/.../run_live_app.sh} \\
+Per-zone labels and masks & \pathref{air1/.../rtsp_zone_tracker.py}, \pathref{air1/.../masks/} \\
+All-zones model contract & \pathref{air1/.../PIPELINE.md}, \pathref{air1/.../feature_contract.py} \\
+Training and promotion & \pathref{air1/.../retrain_once.py}, \pathref{air1/.../promote_model.py} \\
+Verification & \pathref{air1/.../tests/test_all_zones_contract.py}, \pathref{air1/.../smoke_test.py} \\
+\bottomrule
+\end{tabularx}
+\tightsep
+\begin{center}
+\parbox{0.86\textwidth}{\centering\textbf{Closing point: AIR1 is an all-zones, two-camera contract with no Zone 5 power or mmWave signals imported into the model.}}
+\end{center}
+\end{frame}
+
+\end{document}

@@ -1,0 +1,122 @@
+\usepackage[T1]{fontenc}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+
+\metroset{
+  progressbar=frametitle,
+  numbering=fraction,
+  block=fill
+}
+
+\definecolor{ILABNavy}{HTML}{071B2F}
+\definecolor{ILABBlue}{HTML}{123C69}
+\definecolor{ILABOrange}{HTML}{F97316}
+\definecolor{ILABGold}{HTML}{FDBA2D}
+\definecolor{ILABTeal}{HTML}{13A89E}
+\definecolor{ILABInk}{HTML}{142033}
+\definecolor{ILABSteel}{HTML}{556270}
+\definecolor{ILABLine}{HTML}{D8DEE8}
+\definecolor{ILABPaper}{HTML}{F7F8FA}
+
+\setbeamercolor{normal text}{fg=ILABInk,bg=white}
+\setbeamercolor{frametitle}{fg=white,bg=ILABNavy}
+\setbeamercolor{progress bar}{fg=ILABOrange,bg=ILABLine}
+\setbeamercolor{alerted text}{fg=ILABOrange}
+\setbeamercolor{block title}{fg=white,bg=ILABBlue}
+\setbeamercolor{block body}{fg=ILABInk,bg=ILABPaper}
+\setbeamercolor{title separator}{fg=ILABOrange}
+\setbeamerfont{frametitle}{size=\Large,series=\bfseries}
+\setbeamerfont{title}{size=\Large,series=\bfseries}
+\setbeamerfont{subtitle}{size=\large}
+\setbeamersize{text margin left=8mm,text margin right=8mm}
+
+\newcommand{\code}[1]{{\ttfamily\detokenize{#1}}}
+\newcommand{\pathref}[1]{{\scriptsize\ttfamily\detokenize{#1}}}
+\newcommand{\smallpath}[1]{{\tiny\ttfamily\detokenize{#1}}}
+\newcommand{\tightsep}{\vspace{0.35em}}
+\newcommand{\ok}{\textcolor{ILABTeal}{ready}}
+\newcommand{\gated}{\textcolor{ILABOrange}{operator-gated}}
+\newcommand{\watch}{\textcolor{ILABGold}{watch}}
+\newcommand{\chip}[1]{\begingroup\setlength{\fboxsep}{2pt}\colorbox{ILABOrange!16}{\scriptsize\textcolor{ILABNavy}{#1}}\endgroup}
+
+\newcommand{\dotgrid}[1][ILABOrange!48]{%
+  \begin{scope}[shift={(current page.north east)},x=0.18cm,y=0.18cm]
+    \foreach \x in {0,...,9} {
+      \foreach \y in {0,...,4} {
+        \fill[#1] (-4-\x,-3-\y) circle (0.08);
+      }
+    }
+  \end{scope}
+}
+
+\newcommand{\sectionframe}[2]{%
+  \begin{frame}[plain]
+    \begin{tikzpicture}[remember picture,overlay]
+      \fill[ILABNavy] (current page.south west) rectangle (current page.north east);
+      \fill[ILABOrange] (current page.south west) rectangle ([xshift=0.34cm]current page.north west);
+      \draw[ILABOrange,line width=1.2pt] ([xshift=1.1cm,yshift=-1.55cm]current page.north west) -- ++(4.3cm,0);
+      \dotgrid[ILABOrange!55]
+    \end{tikzpicture}
+    \vspace*{1.15cm}
+    {\color{ILABOrange}\Large #1\par}
+    \vspace{0.55cm}
+    {\color{white}\Large\bfseries #2\par}
+  \end{frame}
+}
+
+\newcommand{\decktitleframe}[4]{%
+  \begin{frame}[plain]
+    \begin{tikzpicture}[remember picture,overlay]
+      \fill[ILABNavy] (current page.south west) rectangle (current page.north east);
+      \fill[ILABOrange] (current page.south west) rectangle ([xshift=0.36cm]current page.north west);
+      \node[anchor=east,opacity=0.33] at ([xshift=-0.55cm,yshift=-0.25cm]current page.east) {
+        \includegraphics[height=0.88\paperheight]{#4}
+      };
+      \dotgrid[ILABOrange!62]
+    \end{tikzpicture}
+    \vspace*{0.95cm}
+    {\color{ILABOrange}\Large #1\par}
+    \vspace{0.35cm}
+    {\color{white}\Large\bfseries #2\par}
+    \vspace{0.35cm}
+    {\color{white!78}\large\parbox{0.58\paperwidth}{#3}\par}
+    \vfill
+    {\color{white!72}\normalsize pctiope/smart-i-lab-testbed \hfill May 2026\par}
+  \end{frame}
+}
+
+\tikzset{
+  ilabbox/.style={
+    draw=ILABLine,
+    fill=white,
+    rounded corners=2pt,
+    align=center,
+    minimum height=0.82cm,
+    font=\scriptsize
+  },
+  ilabdark/.style={
+    draw=white!28,
+    fill=white!7,
+    rounded corners=2pt,
+    align=center,
+    minimum height=0.82cm,
+    font=\scriptsize,
+    text=white
+  },
+  ilabstore/.style={
+    draw=ILABTeal,
+    cylinder,
+    shape border rotate=90,
+    aspect=0.22,
+    fill=ILABTeal!12,
+    align=center,
+    font=\scriptsize,
+    minimum height=1.0cm
+  },
+  ilabflow/.style={-Latex,draw=ILABOrange,line width=1.1pt},
+  ilabthinflow/.style={-Latex,draw=ILABSteel,line width=0.9pt},
+  ilablane/.style={draw=ILABLine,fill=ILABPaper,rounded corners=3pt}
+}
