@@ -5,6 +5,20 @@ on:
     branches: [cicd/zone5-compose]
     paths:
       - .github/workflows/zone5-compose-ci-cd.yml
+      - CSV Training Data Code.py
+      - dataloader.py
+      - api_ingestion.py
+      - bronze2silver_preprocess.py
+      - silver2gold_preprocess.py
+      - zone5_training_migrated.py
+      - train_zone5_migrated.py
+      - seed_zone5_live_support_tables.py
+      - smoke_train_runtime.py
+      - requirements.txt
+      - Dockerfile.bsg
+      - compose.zone5-bsg.yaml
+      - docker/**
+      - TEST/**
       - zone5_cv_time_features_package/**
   workflow_dispatch:
 
@@ -41,6 +55,21 @@ jobs:
           python -m pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
           python -m pip install -r requirements.txt
 
+      - name: Install BSG Python dependencies
+        working-directory: .
+        run: python -m pip install -r requirements.txt
+
+      - name: Compile BSG modules
+        working-directory: .
+        run: python -m py_compile "CSV Training Data Code.py" dataloader.py zone5_training_migrated.py train_zone5_migrated.py seed_zone5_live_support_tables.py smoke_train_runtime.py
+
+      - name: Run BSG migration tests
+        working-directory: .
+        run: |
+          python -m unittest TEST.test_training_migrated -v
+          python -m unittest TEST.test_train -v
+          python -m unittest TEST.test_pipeline -v
+
       - name: Compile Python modules
         run: python -m compileall zone5 web_app ci smoke_test.py
 
@@ -75,6 +104,14 @@ jobs:
 
       - name: Build Docker Compose images
         run: docker compose build
+
+      - name: Validate BSG Docker Compose config
+        working-directory: .
+        run: docker compose -f compose.zone5-bsg.yaml config --quiet
+
+      - name: Build BSG Docker Compose images
+        working-directory: .
+        run: docker compose -f compose.zone5-bsg.yaml build bsg-ingestion live-app
 
   deploy:
     name: Deploy staging Compose stack
@@ -116,16 +153,20 @@ jobs:
             fi
           fi
 
+          install -d "$DEPLOY_ROOT/data" "$DEPLOY_ROOT/logs" "$DEPLOY_ROOT/stage"
           install -d "$PKG_ROOT/data" "$PKG_ROOT/model" "$PKG_ROOT/logs"
 
           umask 077
-          cat > "$PKG_ROOT/.env" <<EOF
+          for env_path in "$DEPLOY_ROOT/.env" "$PKG_ROOT/.env"; do
+            cat > "$env_path" <<EOF
           ZONE5_UID=$(id -u)
           ZONE5_GID=$(id -g)
           ZONE5_APP_PORT=8005
           ZONE5_VITE_PORT=8016
           ZONE5_COMPOSE_PROJECT_NAME=zone5-compose
+          ZONE5_BSG_COMPOSE_PROJECT_NAME=zone5-compose
           EOF
+          done
 
           if [ ! -f "$PKG_ROOT/web_app/.env" ]; then
             if [ ! -f "$PROD_ROOT/web_app/.env" ]; then
@@ -160,13 +201,14 @@ jobs:
             printf '%s\n' "$pointer_rel" > "$PKG_ROOT/model/production_run.txt"
           fi
 
-          python3 - "$PROD_ROOT/web_app_vite/smart-ilab-zone5/.env" "$PROD_ROOT/web_app/.env" "$PKG_ROOT/web_app_vite/smart-ilab-zone5/.env" <<'PY'
+          python3 - "$PROD_ROOT/web_app_vite/smart-ilab-zone5/.env" "$PROD_ROOT/web_app/.env" "$PKG_ROOT/web_app_vite/smart-ilab-zone5/.env" "$DEPLOY_ROOT/.env" <<'PY'
           import pathlib
           import sys
 
           prod_vite = pathlib.Path(sys.argv[1])
           prod_backend = pathlib.Path(sys.argv[2])
           stage_vite = pathlib.Path(sys.argv[3])
+          root_env = pathlib.Path(sys.argv[4])
 
           def read_env(path):
               values = {}
@@ -184,14 +226,25 @@ jobs:
 
           vite_values = read_env(prod_vite)
           backend_values = read_env(prod_backend)
-          api_key = vite_values.get("VITE_API_KEY") or backend_values.get("AIR1_API_KEY")
+          api_key = (
+              backend_values.get("SMART_ILAB_API_KEY")
+              or backend_values.get("AIR1_API_KEY")
+              or vite_values.get("VITE_API_KEY")
+          )
           ilab_url = vite_values.get("VITE_ILAB_API_URL")
+          bsg_base_url = (
+              backend_values.get("SMART_ILAB_BASE_URL")
+              or backend_values.get("AIR1_API_URL")
+              or ilab_url
+          )
 
           missing = []
           if not api_key:
-              missing.append("VITE_API_KEY")
+              missing.append("SMART_ILAB_API_KEY/AIR1_API_KEY/VITE_API_KEY")
           if not ilab_url:
               missing.append("VITE_ILAB_API_URL")
+          if not bsg_base_url:
+              missing.append("SMART_ILAB_BASE_URL/AIR1_API_URL")
           if missing:
               joined = ", ".join(missing)
               raise SystemExit(f"Missing production Vite env value(s): {joined}")
@@ -214,16 +267,20 @@ jobs:
           )
           tmp_path.chmod(0o600)
           tmp_path.replace(stage_vite)
+
+          with root_env.open("a", encoding="utf-8") as handle:
+              handle.write(f"SMART_ILAB_BASE_URL={quote(bsg_base_url)}\n")
+              handle.write(f"SMART_ILAB_API_KEY={quote(api_key)}\n")
           PY
 
-          cd "$PKG_ROOT"
-          docker compose config --quiet
-          docker compose up -d --build person-counter mqtt-aggregator sen55-collector live-collector live-app vite-frontend
-          docker compose ps
-          for service in person-counter mqtt-aggregator sen55-collector live-collector live-app vite-frontend; do
-            if ! docker compose ps --services --status running | grep -qx "$service"; then
+          cd "$DEPLOY_ROOT"
+          docker compose -f compose.zone5-bsg.yaml config --quiet
+          docker compose -f compose.zone5-bsg.yaml up -d --build --remove-orphans live-app vite-frontend bsg-ingestion
+          docker compose -f compose.zone5-bsg.yaml ps
+          for service in bsg-ingestion live-app vite-frontend; do
+            if ! docker compose -f compose.zone5-bsg.yaml ps --services --status running | grep -qx "$service"; then
               echo "Compose service is not running: $service" >&2
-              docker compose ps >&2
+              docker compose -f compose.zone5-bsg.yaml ps >&2
               exit 1
             fi
           done
