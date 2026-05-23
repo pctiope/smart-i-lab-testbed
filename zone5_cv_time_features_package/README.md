@@ -1,5 +1,25 @@
 # Zone 5 CV Time-Features Package
 
+## Legacy Notice
+
+This folder is retained in the desktop repository as a legacy reference only.
+
+Do not use the package-local CSV training flow in this copy. The active training-input path for this repository has moved to the repository root and is DuckDB SQL-only.
+
+Use the root pipeline files instead:
+
+- `api_ingestion.py`
+- `bronze2silver_preprocess.py`
+- `silver2gold_preprocess.py`
+- `zone5_training_migrated.py`
+- `smoke_train_runtime.py`
+- `seed_zone5_live_support_tables.py`
+- `README/README_db.md`
+- `README/RUNTIME_GUIDE.md`
+- `README/README_training_migrated.md`
+
+The shell and PowerShell wrappers in this folder that build or train from CSV are intentionally disabled in the desktop repo copy so the active path stays SQL-only.
+
 This package trains and serves the Zone 5 occupancy model from scratch using
 CV person-count labels plus AIR-1, smart plug, mmWave, SEN55, and engineered
 time features. It intentionally does not include generated training data,
@@ -8,6 +28,10 @@ the user-facing commands. The CV counter runtime assets are package-local under
 `cv_counter/`, so deployment does not depend on files outside this folder.
 The first-class persistent deployment paths are Ubuntu user-systemd and Docker
 Compose. PowerShell wrappers remain for legacy/manual runs only.
+
+## Historical Reference
+
+The remainder of this file documents the original package-local CSV workflow and is preserved only for archaeology.
 
 ## Install
 

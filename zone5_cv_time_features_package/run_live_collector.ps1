@@ -15,6 +15,14 @@ $ErrorActionPreference = "Stop"
 
 Set-Location $PSScriptRoot
 
+Write-Error @"
+This package-local live collector wrapper is archived in the desktop repo copy.
+
+It builds CSV training artifacts and is no longer the active path.
+Use the repository-root DuckDB Bronze/Silver/Gold pipeline instead.
+"@
+exit 1
+
 if (-not $env:AIR1_API_URL) {
     $env:AIR1_API_URL = "http://10.158.66.30:80"
 }

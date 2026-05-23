@@ -1,5 +1,11 @@
 # Zone 5 Deployment Runbook
 
+## Legacy Notice
+
+This deployment runbook is preserved as a historical package-local CSV deployment reference.
+
+For the active desktop repo copy, do not deploy the Zone 5 CSV collector or CSV trainer from this folder. Use the repository-root DuckDB SQL-only pipeline documented in `README/README_db.md`, `README/RUNTIME_GUIDE.md`, and `README/README_training_migrated.md`.
+
 This runbook deploys the active package only:
 
 ```text

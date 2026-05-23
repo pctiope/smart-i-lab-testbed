@@ -14,6 +14,14 @@ $ErrorActionPreference = "Stop"
 
 Set-Location $PSScriptRoot
 
+Write-Error @"
+This package-local training wrapper is archived in the desktop repo copy.
+
+Do not use zone5.training or CSV inputs from zone5_cv_time_features_package/.
+Use the repository-root DuckDB SQL-only pipeline described in README/README_training_migrated.md.
+"@
+exit 1
+
 $trainArgs = @(
     "-m", "zone5.training",
     "--csv", "data\zone5_training_cv.csv",

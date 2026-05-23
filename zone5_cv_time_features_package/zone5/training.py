@@ -55,9 +55,6 @@ from zone5.feature_contract import (
     FEATURE_COLUMNS,
     INPUT_CHANNEL_COUNT,
     LOOKBACK_ROWS_BY_MINUTES,
-    MMWAVE_RECENCY_FEATURE_COLUMNS,
-    MMWAVE_RECENCY_FRACTION_WINDOWS_MINUTES,
-    MMWAVE_RECENCY_NO_PRIOR_MINUTES,
     MISSING_INDICATOR_COLUMNS,
     MODEL_CONTRACT_VERSION,
     PACKAGE_ROOT,
@@ -629,7 +626,51 @@ def select_cv_lookback_plan(
     min_strict_date_coverage: float = STRICT_DATE_MIN_COVERAGE,
 ) -> dict[str, Any]:
     requested_cv_folds = validate_cv_folds(cv_folds)
-    blind_splits = blind_test_split(frame)
+    try:
+        blind_splits = blind_test_split(frame)
+    except ValueError as exc:
+        if not bootstrap_fallback:
+            raise
+        timestamps = pd.to_datetime(frame[TIMESTAMP_COLUMN])
+        unique_dates = sorted(timestamps.dt.normalize().unique())
+        if len(unique_dates) != 1:
+            raise
+        bootstrap_fold = bootstrap_chronological_validation_fold(frame)
+        bootstrap_lookback_candidates, bootstrap_rejected_lookbacks = viable_cv_lookback_candidates(
+            [bootstrap_fold],
+            {"pre_test": frame.copy().reset_index(drop=True), "test": frame.copy().reset_index(drop=True)},
+            allow_degenerate_validation=allow_degenerate_validation,
+        )
+        bootstrap_fold_bounds = _fold_policy_bounds(bootstrap_fold)
+        bootstrap_split_policy = {
+            "validation_mode": "single_day_bootstrap_no_blind_test",
+            "blind_test_calendar_days": 0,
+            "blind_test_reused_pre_test": True,
+            "bootstrap_fallback_enabled": True,
+            "bootstrap_fallback_used": True,
+            "bootstrap_fallback_reason": str(exc),
+            "cv_folds": 1,
+            "cv_folds_requested": int(requested_cv_folds),
+            "cv_folds_used": 1,
+            "cv_validation_calendar_days": 0,
+            "strict_date_min_coverage": float(min_strict_date_coverage),
+            "strict_date_full_day_rows": int(_rows_per_full_day()),
+            "strict_date_eligible_dates": [date.date().isoformat() for date in unique_dates],
+            "strict_date_excluded_dates": [],
+            "pre_test_bounds": _frame_time_bounds(frame),
+            "blind_test_bounds": _frame_time_bounds(frame),
+            "cv_fold_bounds": [bootstrap_fold_bounds],
+            "bootstrap_fold_bounds": bootstrap_fold_bounds,
+            "strict_validation_error": str(exc),
+        }
+        return {
+            "blind_splits": {"pre_test": frame.copy().reset_index(drop=True), "test": frame.copy().reset_index(drop=True)},
+            "cv_folds": [bootstrap_fold],
+            "split_policy": bootstrap_split_policy,
+            "lookback_candidates": bootstrap_lookback_candidates,
+            "rejected_lookbacks": bootstrap_rejected_lookbacks,
+            "strict_rejected_lookbacks": {},
+        }
     strict_validation_error: str | None = None
     try:
         strict_cv_folds, strict_split_policy = validation_folds_for_blind_split(
@@ -952,9 +993,6 @@ def train_zone_5_from_csv(
         "input_channels": INPUT_CHANNEL_COUNT,
         "feature_fill_values": final_fill_values,
         "missing_indicator_columns": MISSING_INDICATOR_COLUMNS,
-        "engineered_mmwave_feature_columns": MMWAVE_RECENCY_FEATURE_COLUMNS,
-        "mmwave_recency_fraction_windows_minutes": MMWAVE_RECENCY_FRACTION_WINDOWS_MINUTES,
-        "mmwave_recency_no_prior_minutes": MMWAVE_RECENCY_NO_PRIOR_MINUTES,
         "core_feature_min_present_fractions": CORE_FEATURE_MIN_PRESENT_FRACTIONS,
         "sen55_optional": True,
         "sen55_dropout_probability": DEFAULT_SEN55_DROPOUT_PROBABILITY,
@@ -988,12 +1026,9 @@ def train_zone_5_from_csv(
         "feature_columns": FEATURE_COLUMNS,
         "raw_feature_columns": RAW_FEATURE_COLUMNS,
         "missing_indicator_columns": MISSING_INDICATOR_COLUMNS,
-        "engineered_mmwave_feature_columns": MMWAVE_RECENCY_FEATURE_COLUMNS,
         "engineered_time_feature_columns": TIME_FEATURE_COLUMNS,
         "target_column": TARGET_COLUMN,
         "feature_fill_values": final_fill_values,
-        "mmwave_recency_fraction_windows_minutes": MMWAVE_RECENCY_FRACTION_WINDOWS_MINUTES,
-        "mmwave_recency_no_prior_minutes": MMWAVE_RECENCY_NO_PRIOR_MINUTES,
         "core_feature_min_present_fractions": CORE_FEATURE_MIN_PRESENT_FRACTIONS,
         "sen55_optional": True,
         "means": {col: final_scaler_stats[col]["mean"] for col in FEATURE_COLUMNS},
@@ -1061,9 +1096,6 @@ def train_zone_5_from_csv(
         "cv_folds_used": int(split_policy.get("cv_folds_used", len(cv_folds))),
         "min_strict_date_coverage": float(min_strict_date_coverage),
         "core_feature_min_present_fractions": CORE_FEATURE_MIN_PRESENT_FRACTIONS,
-        "engineered_mmwave_feature_columns": MMWAVE_RECENCY_FEATURE_COLUMNS,
-        "mmwave_recency_fraction_windows_minutes": MMWAVE_RECENCY_FRACTION_WINDOWS_MINUTES,
-        "mmwave_recency_no_prior_minutes": MMWAVE_RECENCY_NO_PRIOR_MINUTES,
         "sen55_optional": True,
         "sen55_dropout_probability": DEFAULT_SEN55_DROPOUT_PROBABILITY,
         "cv_metrics": {
@@ -1110,11 +1142,8 @@ def train_zone_5_from_csv(
         "feature_columns": FEATURE_COLUMNS,
         "raw_feature_columns": RAW_FEATURE_COLUMNS,
         "missing_indicator_columns": MISSING_INDICATOR_COLUMNS,
-        "engineered_mmwave_feature_columns": MMWAVE_RECENCY_FEATURE_COLUMNS,
         "engineered_time_feature_columns": TIME_FEATURE_COLUMNS,
         "target_column": TARGET_COLUMN,
-        "mmwave_recency_fraction_windows_minutes": MMWAVE_RECENCY_FRACTION_WINDOWS_MINUTES,
-        "mmwave_recency_no_prior_minutes": MMWAVE_RECENCY_NO_PRIOR_MINUTES,
         "lookback": best_lookback,
         "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
         "lookback_minutes": best_lookback_minutes,
