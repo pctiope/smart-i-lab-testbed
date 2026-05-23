@@ -7,7 +7,7 @@ This guide consolidates the local DuckDB initialization flow, live API ingestion
 - Workspace root: `d:\AI 231`
 - Python environment: `.\.venv\Scripts\python.exe`
 - Local DuckDB file: `smart_ilab.duckdb`
-- Live API endpoint and key are taken from [api_ingestion.py](/d:/AI 231/api_ingestion.py)
+- Live API endpoint and key are taken from [api_ingestion.py](../api_ingestion.py)
 
 Run all commands from the workspace root.
 
