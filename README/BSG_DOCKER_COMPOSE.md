@@ -25,7 +25,9 @@ The BSG containers persist DuckDB/Parquet data under `./data`, logs under
 `./logs`, and Zone 5 model artifacts under
 `./zone5_cv_time_features_package/model`. The live app mounts that same model
 directory, so BSG training can write artifacts without changing the dashboard's
-production-pointer contract.
+production-pointer contract. The compose stack sets `SMART_ILAB_DUCKDB_PATH`
+to `/workspace/data/smart_ilab.duckdb` so DuckDB and its WAL stay on the
+writable data volume when containers run as the host user.
 
 Initialize and validate the BSG path:
 

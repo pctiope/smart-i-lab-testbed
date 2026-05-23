@@ -22,7 +22,7 @@ import pandas as pd
 # ── Storage config ────────────────────────────────────────────────────────────
 USE_REMOTE      = False
 LOCAL_DATA_PATH = Path("data")
-DUCKDB_PATH     = Path("smart_ilab.duckdb")
+DUCKDB_PATH     = Path(os.environ.get("SMART_ILAB_DUCKDB_PATH", "smart_ilab.duckdb"))
 LOCAL_STAGE_PATH = Path("stage")
 LOCAL_TRAINING_TABLE_PATH = LOCAL_DATA_PATH / "_training_tables"
 

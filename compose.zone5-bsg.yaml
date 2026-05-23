@@ -6,6 +6,7 @@ x-bsg-env: &bsg-env
   PYTHON_BIN: python3
   SMART_ILAB_BASE_URL: ${SMART_ILAB_BASE_URL:-}
   SMART_ILAB_API_KEY: ${SMART_ILAB_API_KEY:-}
+  SMART_ILAB_DUCKDB_PATH: /workspace/data/smart_ilab.duckdb
 
 x-zone5-env: &zone5-env
   PYTHONUNBUFFERED: "1"
