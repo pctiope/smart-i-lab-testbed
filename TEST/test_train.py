@@ -25,7 +25,14 @@ ROOT = Path(__file__).resolve().parent.parent
 TEST_ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-LEGACY_ZONE5_ROOT = ROOT / "Legacy" / "zone5_cv_time_features_package"
+LEGACY_ZONE5_ROOT = next(
+    path
+    for path in (
+        ROOT / "Legacy" / "zone5_cv_time_features_package",
+        ROOT / "zone5_cv_time_features_package",
+    )
+    if path.exists()
+)
 if str(LEGACY_ZONE5_ROOT) not in sys.path:
     sys.path.insert(0, str(LEGACY_ZONE5_ROOT))
 

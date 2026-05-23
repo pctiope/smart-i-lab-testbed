@@ -21,6 +21,7 @@ os.environ["DUCKDB_READ_ONLY"] = "1"
 
 _storage_mod = importlib.import_module("CSV Training Data Code")
 import dataloader as _dl_mod  # noqa: E402
+import seed_zone5_live_support_tables as _seed_support  # noqa: E402
 import train_zone5_migrated as _trainer  # noqa: E402
 import zone5_training_migrated as _migrated  # noqa: E402
 
@@ -32,6 +33,7 @@ class PatchedTrainingMigrationTestCase(unittest.TestCase):
 
         self._orig_storage_db = _storage_mod._db
         self._orig_dataloader_db = _dl_mod._db
+        self._orig_trainer_migrated_module = _trainer._migrated_module
 
         self.db = duckdb.connect(":memory:")
         self.db.execute("CREATE SCHEMA IF NOT EXISTS bronze")
@@ -40,8 +42,10 @@ class PatchedTrainingMigrationTestCase(unittest.TestCase):
 
         _storage_mod._db = self.db
         _dl_mod._db = self.db
+        _trainer._migrated_module = lambda read_only=False: _migrated
 
     def tearDown(self):
+        _trainer._migrated_module = self._orig_trainer_migrated_module
         _storage_mod._db = self._orig_storage_db
         _dl_mod._db = self._orig_dataloader_db
         try:
@@ -183,6 +187,46 @@ class TestTrainingMigrationParity(PatchedTrainingMigrationTestCase):
         self.assertEqual(len(frame), 3)
         self.assertIn("zone_occupied", frame.columns)
         self.assertEqual(snapshot["labeled_rows"], 3)
+
+    def test_support_table_seed_reads_real_csv_sources(self):
+        timestamps = pd.date_range("2026-05-06 10:00:00", periods=3, freq="10s")
+        sen55_csv = self.root / "sen55_data.csv"
+        cv_csv = self.root / "cv_occupancy_zone5_10sec.csv"
+        pd.DataFrame(
+            {
+                "timestamp": timestamps,
+                "sensor_id": ["sen55_01"] * len(timestamps),
+                "pm1_0": [1.0, 1.1, 1.2],
+                "pm2_5": [2.0, 2.1, 2.2],
+                "pm4_0": [3.0, 3.1, 3.2],
+                "pm10_0": [4.0, 4.1, 4.2],
+                "temperature": [25.0, 25.1, 25.2],
+                "humidity": [50.0, 50.1, 50.2],
+                "voc": [10.0, 11.0, 12.0],
+                "nox": [20.0, 21.0, 22.0],
+            }
+        ).to_csv(sen55_csv, index=False)
+        pd.DataFrame(
+            {
+                "timestamp": timestamps,
+                "occupancy_count": [0, 2, 0],
+                "cv_is_occupied": [0, 1, 0],
+                "sample_count": [4, 5, 6],
+            }
+        ).to_csv(cv_csv, index=False)
+
+        sen55_report = _seed_support.seed_zone5_sen55_from_csv(csv_path=sen55_csv, rebuild=True)
+        cv_report = _seed_support.seed_zone5_cv_labels_from_csv(csv_path=cv_csv, rebuild=True)
+
+        self.assertFalse(sen55_report["surrogate"])
+        self.assertFalse(cv_report["surrogate"])
+        sen55 = _migrated.load_migrated_table(_migrated.SILVER_SEN55)
+        labels = _migrated.load_migrated_table(_migrated.SILVER_CV_LABELS)
+        self.assertEqual(len(sen55), 3)
+        self.assertEqual(len(labels), 3)
+        self.assertIn("pm1_0", sen55.columns)
+        self.assertIn("zone_occupied", labels.columns)
+        self.assertEqual(labels["zone_occupied"].astype(int).tolist(), [0, 1, 0])
 
 
 if __name__ == "__main__":
