@@ -11,11 +11,10 @@ import torch
 
 from zone5.dataset import apply_training_preprocessing, live_feature_quality_diagnostics
 from zone5.feature_contract import (
-    FEATURE_COLUMNS,
     MISSING_INDICATOR_COLUMNS,
-    MODEL_CONTRACT_VERSION,
     RAW_FEATURE_COLUMNS,
     SAMPLE_INTERVAL_SECONDS,
+    SUPPORTED_MODEL_FEATURE_COLUMNS_BY_CONTRACT,
     TIMESTAMP_COLUMN,
     add_time_features,
 )
@@ -100,30 +99,36 @@ def require_10_second_model_contract(
             f"legacy_missingness_channels={legacy_missingness_channels}. "
             "Retrain and promote a missingness-decoupled Zone 5 model."
         )
-    if feature_columns != FEATURE_COLUMNS:
-        raise ValueError(
-            "model artifact feature contract does not match the current Zone 5 contract; "
-            f"expected_feature_columns={FEATURE_COLUMNS}, artifact_feature_columns={feature_columns}. "
-            "Retrain and promote a missingness-decoupled Zone 5 model."
-        )
-
     contract_values = {"scaler_stats": scaler_stats.get("model_contract_version")}
     if best_params_payload is not None:
         contract_values["best_params"] = best_params_payload.get("model_contract_version")
     if checkpoint is not None:
         contract_values["checkpoint"] = checkpoint.get("model_contract_version")
     missing_contract = [name for name, value in contract_values.items() if value is None]
-    bad_contract = {
-        name: value
-        for name, value in contract_values.items()
-        if value is not None and value != MODEL_CONTRACT_VERSION
-    }
-    if missing_contract or bad_contract:
+    non_missing_contracts = {str(value) for value in contract_values.values() if value is not None}
+    if missing_contract or len(non_missing_contracts) != 1:
         raise ValueError(
-            "model artifact is not a missingness-decoupled Zone 5 model; "
-            f"expected_model_contract_version={MODEL_CONTRACT_VERSION!r}, "
-            f"missing_model_contract_version={missing_contract}, bad_model_contract_version={bad_contract}. "
+            "model artifact is not a supported Zone 5 model; "
+            f"supported_model_contract_versions={list(SUPPORTED_MODEL_FEATURE_COLUMNS_BY_CONTRACT)}, "
+            f"missing_model_contract_version={missing_contract}, "
+            f"model_contract_versions={contract_values}. "
             "Retrain and promote a current model before live inference."
+        )
+    artifact_contract = next(iter(non_missing_contracts))
+    expected_feature_columns = SUPPORTED_MODEL_FEATURE_COLUMNS_BY_CONTRACT.get(artifact_contract)
+    if expected_feature_columns is None:
+        raise ValueError(
+            "model artifact is not a supported Zone 5 model; "
+            f"supported_model_contract_versions={list(SUPPORTED_MODEL_FEATURE_COLUMNS_BY_CONTRACT)}, "
+            f"bad_model_contract_version={artifact_contract!r}. "
+            "Retrain and promote a current model before live inference."
+        )
+    if feature_columns != expected_feature_columns:
+        raise ValueError(
+            "model artifact feature contract does not match the current Zone 5 contract; "
+            f"expected_feature_columns={expected_feature_columns}, artifact_feature_columns={feature_columns}, "
+            f"artifact_model_contract_version={artifact_contract!r}. "
+            "Retrain and promote a supported Zone 5 model."
         )
 
 

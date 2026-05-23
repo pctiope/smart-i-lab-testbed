@@ -40,7 +40,7 @@ from zone5.occupancy_mqtt_aggregator import (
 )
 from web_app.cv_ground_truth import CvGroundTruthTailer
 from web_app.data_source import LiveAir1DataSource, ReplayTableDataSource, build_data_source_from_env
-from web_app.inference_loop import InferenceConfig, InferenceLoop
+from web_app.inference_loop import InferenceConfig, InferenceLoop, build_sensor_context
 from web_app import main as web_main
 
 
@@ -84,16 +84,23 @@ def minimal_cnn_params(lookback: int = 3) -> dict[str, object]:
     }
 
 
-def write_minimal_zone5_artifact(root: Path, lookback: int = 3) -> Path:
+def write_minimal_zone5_artifact(
+    root: Path,
+    lookback: int = 3,
+    feature_columns: list[str] | None = None,
+    contract_version: str | None = None,
+) -> Path:
     run_dir = root / "artifact"
     (run_dir / "models").mkdir(parents=True)
     (run_dir / "tables").mkdir(parents=True)
     params = minimal_cnn_params(lookback)
+    feature_columns = list(feature_columns or training.FEATURE_COLUMNS)
+    contract_version = contract_version or training.MODEL_CONTRACT_VERSION
     torch.manual_seed(7)
-    model = training.TunableZoneOccupancyCNN(params=params, input_channels=len(training.FEATURE_COLUMNS))
+    model = training.TunableZoneOccupancyCNN(params=params, input_channels=len(feature_columns))
     scaler = {
-        "model_contract_version": training.MODEL_CONTRACT_VERSION,
-        "feature_columns": training.FEATURE_COLUMNS,
+        "model_contract_version": contract_version,
+        "feature_columns": feature_columns,
         "raw_feature_columns": training.RAW_FEATURE_COLUMNS,
         "missing_indicator_columns": training.MISSING_INDICATOR_COLUMNS,
         "target_column": training.TARGET_COLUMN,
@@ -102,18 +109,18 @@ def write_minimal_zone5_artifact(root: Path, lookback: int = 3) -> Path:
         "lookback_rows": lookback,
         "lookback_minutes": lookback * training.SAMPLE_INTERVAL_SECONDS / 60.0,
         "feature_fill_values": {col: 0.0 for col in training.RAW_FEATURE_COLUMNS},
-        "means": {col: 0.0 for col in training.FEATURE_COLUMNS},
-        "stds": {col: 1.0 for col in training.FEATURE_COLUMNS},
+        "means": {col: 0.0 for col in feature_columns},
+        "stds": {col: 1.0 for col in feature_columns},
     }
     best_params = {
-        "model_contract_version": training.MODEL_CONTRACT_VERSION,
+        "model_contract_version": contract_version,
         "params": params,
         "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
         "lookback": lookback,
         "lookback_rows": lookback,
     }
     checkpoint = {
-        "model_contract_version": training.MODEL_CONTRACT_VERSION,
+        "model_contract_version": contract_version,
         "model_state_dict": model.state_dict(),
         "params": params,
         "target_column": training.TARGET_COLUMN,
@@ -121,6 +128,7 @@ def write_minimal_zone5_artifact(root: Path, lookback: int = 3) -> Path:
         "lookback": lookback,
         "lookback_rows": lookback,
         "feature_fill_values": {col: 0.0 for col in training.RAW_FEATURE_COLUMNS},
+        "feature_columns": feature_columns,
     }
     (run_dir / "tables" / "scaler_stats_zone_5.json").write_text(json.dumps(scaler), encoding="utf-8")
     (run_dir / "tables" / "best_params_zone_5.json").write_text(json.dumps(best_params), encoding="utf-8")
@@ -699,8 +707,66 @@ class TrainingPreprocessingTests(unittest.TestCase):
     def test_feature_contract_keeps_raw_sensors_but_excludes_missingness_channels(self) -> None:
         for col in [*training.RAW_FEATURE_COLUMNS, *training.TIME_FEATURE_COLUMNS]:
             self.assertIn(col, training.FEATURE_COLUMNS)
+        for col in training.MMWAVE_RECENCY_FEATURE_COLUMNS:
+            self.assertIn(col, training.FEATURE_COLUMNS)
         self.assertFalse(any(col.endswith("_missing") for col in training.FEATURE_COLUMNS))
+        self.assertFalse(any(col in training.source_feature_columns() for col in training.MMWAVE_RECENCY_FEATURE_COLUMNS))
         self.assertEqual(training.INPUT_CHANNEL_COUNT, len(training.FEATURE_COLUMNS))
+
+    def test_mmwave_recency_features_are_past_only_and_capped(self) -> None:
+        timestamps = pd.date_range("2026-05-06 10:00:00", periods=12, freq="10s")
+        frame = pd.DataFrame(
+            {
+                training.TIMESTAMP_COLUMN: timestamps,
+                "mmwave_s5": [1, 0, 0, 0, 0, 0, 0, 1, np.nan, 0, 0, 0],
+            }
+        )
+
+        enriched = training.add_mmwave_recency_features(frame)
+
+        self.assertAlmostEqual(enriched.loc[0, "mmwave_s5_recent_1m_fraction"], 1.0)
+        self.assertAlmostEqual(enriched.loc[5, "mmwave_s5_recent_1m_fraction"], 1 / 6)
+        self.assertAlmostEqual(enriched.loc[6, "mmwave_s5_recent_1m_fraction"], 0.0)
+        self.assertAlmostEqual(enriched.loc[7, "mmwave_s5_recent_1m_fraction"], 1 / 6)
+        self.assertAlmostEqual(enriched.loc[1, "mmwave_s5_minutes_since_last_occupied"], 1 / 6)
+        self.assertAlmostEqual(enriched.loc[6, "mmwave_s5_minutes_since_last_occupied"], 1.0)
+        self.assertAlmostEqual(enriched.loc[7, "mmwave_s5_minutes_since_last_occupied"], 0.0)
+        self.assertAlmostEqual(enriched.loc[8, "mmwave_s5_minutes_since_last_occupied"], 1 / 6)
+
+        no_prior = training.add_mmwave_recency_features(
+            pd.DataFrame(
+                {
+                    training.TIMESTAMP_COLUMN: pd.date_range("2026-05-06 11:00:00", periods=3, freq="10s"),
+                    "mmwave_s5": [0, 0, 0],
+                }
+            )
+        )
+        self.assertEqual(
+            no_prior["mmwave_s5_minutes_since_last_occupied"].tolist(),
+            [training.MMWAVE_RECENCY_NO_PRIOR_MINUTES] * 3,
+        )
+
+    def test_load_zone_5_csv_derives_mmwave_recency_from_old_csv_schema(self) -> None:
+        root = fresh_test_dir("old_csv_recency")
+        csv_path = root / "zone5_training_cv.csv"
+        rows = []
+        for idx in range(8):
+            row = {
+                training.TIMESTAMP_COLUMN: pd.Timestamp("2026-05-06 10:00:00") + pd.Timedelta(seconds=10 * idx),
+                training.TARGET_COLUMN: float(idx % 2),
+            }
+            for col in training.RAW_FEATURE_COLUMNS:
+                row[col] = 0.0
+            row["mmwave_s5"] = 1.0 if idx == 0 else 0.0
+            rows.append(row)
+        pd.DataFrame(rows).to_csv(csv_path, index=False)
+
+        loaded, _path = training.load_zone_5_csv(csv_path)
+
+        for col in training.MMWAVE_RECENCY_FEATURE_COLUMNS:
+            self.assertIn(col, loaded.columns)
+        self.assertAlmostEqual(loaded.loc[5, "mmwave_s5_recent_1m_fraction"], 1 / 6)
+        self.assertAlmostEqual(loaded.loc[6, "mmwave_s5_minutes_since_last_occupied"], 1.0)
 
     def test_core_missingness_blocks_training_windows_but_sen55_missing_does_not(self) -> None:
         rows = []
@@ -761,6 +827,25 @@ class TrainingPreprocessingTests(unittest.TestCase):
                 reference_time=frame[training.TIMESTAMP_COLUMN].iloc[-1],
                 max_age_minutes=None,
             )
+
+    def test_live_prediction_accepts_current_production_legacy_contract(self) -> None:
+        root = fresh_test_dir("legacy_live_contract")
+        run_dir = write_minimal_zone5_artifact(
+            root,
+            lookback=3,
+            feature_columns=training.LEGACY_MISSINGNESS_DECOUPLED_FEATURE_COLUMNS,
+            contract_version=training.LEGACY_MISSINGNESS_DECOUPLED_CONTRACT_VERSION,
+        )
+        frame = self._live_feature_frame(rows=3, value=1.0)
+
+        probability = training.predict_zone_5_probability(
+            frame,
+            artifact_dir=run_dir,
+            reference_time=frame[training.TIMESTAMP_COLUMN].iloc[-1],
+            max_age_minutes=None,
+        )
+
+        self.assertTrue(np.isfinite(probability))
 
     def test_legacy_missingness_channel_artifact_is_rejected(self) -> None:
         legacy_feature_columns = [
@@ -823,6 +908,29 @@ class LiveAppendAndWebFeatureTests(unittest.TestCase):
         for col in training.RAW_FEATURE_COLUMNS:
             row[col] = value
         return row
+
+    def test_sensor_context_summarizes_live_prediction_window(self) -> None:
+        timestamps = pd.date_range("2026-05-23 10:00:00", periods=90, freq="10s")
+        frame = pd.DataFrame({"timestamp": timestamps})
+        for col in training.RAW_FEATURE_COLUMNS:
+            frame[col] = 1.0
+        frame["mmwave_s5"] = [0.0] * 30 + [1.0] * 60
+        frame["power_s5"] = np.arange(90, dtype=float)
+        frame.loc[0, "power_s5"] = np.nan
+        frame.loc[10, "sen55_pm10_0"] = np.nan
+
+        context = build_sensor_context(frame, 90)
+
+        self.assertEqual(context["lookback_rows"], 90)
+        self.assertEqual(context["window_start"], "2026-05-23T10:00:00")
+        self.assertEqual(context["window_end"], "2026-05-23T10:14:50")
+        self.assertEqual(context["mmwave_s5_latest"], 1.0)
+        self.assertAlmostEqual(context["mmwave_s5_occupied_fraction"], 60 / 90)
+        self.assertEqual(context["power_s5_latest"], 89.0)
+        self.assertAlmostEqual(context["power_s5_mean"], float(np.nanmean(frame["power_s5"])))
+        self.assertAlmostEqual(context["core_present_fractions"]["power_s5"], 89 / 90)
+        self.assertAlmostEqual(context["core_present_fractions"]["mmwave_s5"], 1.0)
+        self.assertAlmostEqual(context["sen55_present_min_fraction"], 89 / 90)
 
     def test_live_append_deduplicates_existing_timestamps(self) -> None:
         root = fresh_test_dir("live_append")
@@ -1961,6 +2069,19 @@ class PackageAuditTests(unittest.TestCase):
         self.assertIn("const displayedProbability = smoothProbability(event.probability)", app_js)
         self.assertIn("setOccupiedFlag(visualOccupied(displayedProbability), displayedProbability)", app_js)
         self.assertIn("p=${displayedProbability.toFixed(4)}", app_js)
+
+    def test_vite_history_chart_shows_mmwave_lookback_fraction(self) -> None:
+        package_root = Path(__file__).resolve().parents[1]
+        vite_root = package_root / "web_app_vite" / "smart-ilab-zone5"
+        app_js = (vite_root / "src" / "main.js").read_text(encoding="utf-8")
+        html = (vite_root / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn("function mmwaveLookbackFraction(event)", app_js)
+        self.assertIn("sensor_context?.mmwave_s5_occupied_fraction", app_js)
+        self.assertIn('name: "mmWave lookback"', app_js)
+        self.assertIn("raw p=%{y:.4f}", app_js)
+        self.assertIn("RAW PRED", html)
+        self.assertIn("MMWAVE LOOKBACK", html)
 
 
 class PromotionContractTests(unittest.TestCase):

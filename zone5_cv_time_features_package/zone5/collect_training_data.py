@@ -20,6 +20,9 @@ from zone5 import dataset as cv_dataset
 from zone5 import feature_builder
 from zone5.feature_contract import (
     FEATURE_COLUMNS,
+    MMWAVE_RECENCY_FEATURE_COLUMNS,
+    MMWAVE_RECENCY_FRACTION_WINDOWS_MINUTES,
+    MMWAVE_RECENCY_NO_PRIOR_MINUTES,
     MISSING_INDICATOR_COLUMNS,
     RAW_FEATURE_COLUMNS,
     SAMPLE_INTERVAL,
@@ -318,6 +321,9 @@ def _joined_frame_metadata(
         "target_column": cv_training.CV_TARGET_COLUMN,
         "model_feature_columns": FEATURE_COLUMNS,
         "raw_model_feature_columns": RAW_FEATURE_COLUMNS,
+        "engineered_mmwave_feature_columns": MMWAVE_RECENCY_FEATURE_COLUMNS,
+        "mmwave_recency_fraction_windows_minutes": MMWAVE_RECENCY_FRACTION_WINDOWS_MINUTES,
+        "mmwave_recency_no_prior_minutes": MMWAVE_RECENCY_NO_PRIOR_MINUTES,
         "missing_indicator_columns": MISSING_INDICATOR_COLUMNS,
         "audit_columns_not_model_inputs": audit_columns,
         "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,

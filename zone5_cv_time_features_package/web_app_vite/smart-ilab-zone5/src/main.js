@@ -125,6 +125,11 @@ function eventTimestampMs(event) {
     return Number.isFinite(ms) ? ms : null;
 }
 
+function mmwaveLookbackFraction(event) {
+    const value = Number(event?.sensor_context?.mmwave_s5_occupied_fraction);
+    return Number.isFinite(value) ? value : null;
+}
+
 function setDigits(probability) {
     DIGITS.textContent = probability.toFixed(4);
     DIGITS.classList.remove("flash");
@@ -637,6 +642,7 @@ async function refreshEnv() {
 const M3_TERTIARY    = "#84D5A1";
 const M3_UNOCCUPIED   = "#ff4d3a";
 const M3_WARN        = "#FFB4AB";
+const M3_MMWAVE      = "#FFBA4D";
 
 function makeHistLayout(nowTs) {
     const gridCol = `${M3_OUTLINE_VAR}60`;
@@ -663,7 +669,7 @@ function makeHistLayout(nowTs) {
             tickvals: [0, 0.25, 0.5, 0.75, 1.0],
             ticktext: ["0.00", "0.25", "0.50", "0.75", "1.00"],
             tickfont: { size: 9 },
-            title: { text: "prediction", font: { size: 9, color: M3_OUTLINE } },
+            title: { text: "probability / fraction", font: { size: 9, color: M3_OUTLINE } },
         },
         showlegend: false,
         shapes,
@@ -705,14 +711,21 @@ function initHistCharts() {
         showlegend: false,
     };
     const gtTrace2 = { ...gtTrace, fillcolor: `${M3_UNOCCUPIED}40` };
-    const predTrace = {
+    const mmwaveTrace = {
         x: [], y: [],
-        type: "scatter", mode: "lines", name: "prediction",
-        line: { color: M3_PRIMARY, width: 1.8, shape: "spline", smoothing: 0.4 },
-        hovertemplate: "%{x|%H:%M:%S}<br><b>p=%{y:.4f}</b><extra></extra>",
+        type: "scatter", mode: "lines", name: "mmWave lookback",
+        line: { color: M3_MMWAVE, width: 1.7, dash: "dot", shape: "vh" },
+        hovertemplate: "%{x|%H:%M:%S}<br><b>mmWave lookback=%{y:.1%}</b><extra></extra>",
         showlegend: false,
     };
-    Plotly.newPlot(HIST_DIV, [gtTrace, predTrace], makeHistLayout(null), {
+    const predTrace = {
+        x: [], y: [],
+        type: "scatter", mode: "lines", name: "raw prediction",
+        line: { color: M3_PRIMARY, width: 1.8, shape: "spline", smoothing: 0.4 },
+        hovertemplate: "%{x|%H:%M:%S}<br><b>raw p=%{y:.4f}</b><extra></extra>",
+        showlegend: false,
+    };
+    Plotly.newPlot(HIST_DIV, [gtTrace, gtTrace2, mmwaveTrace, predTrace], makeHistLayout(null), {
         responsive: true, displayModeBar: false,
     });
 
@@ -748,6 +761,7 @@ async function refreshHistCharts() {
         const xs        = valid.map(ev => ev.timestamp);
         const predYs    = valid.map(ev => Number(ev.probability));
         const gtYs      = valid.map(ev => ev.ground_truth_occupied === true ? 1 : 0);
+        const mmwaveYs  = valid.map(mmwaveLookbackFraction);
 
         // MSE: squared error between predicted probability and GT binary
         const mseYs     = predYs.map((p, i) => (p - gtYs[i]) ** 2);
@@ -767,10 +781,15 @@ async function refreshHistCharts() {
                   fill: "tozeroy", fillcolor: `${M3_UNOCCUPIED}40`,
                   hovertemplate: "%{x|%H:%M:%S}<br><b>GT=%{y}</b><extra></extra>",
                   showlegend: false },
+                // mmWave occupancy fraction across the exact prediction lookback window
+                { x: xs, y: mmwaveYs, type: "scatter", mode: "lines", name: "mmWave lookback",
+                  line: { color: M3_MMWAVE, width: 1.7, dash: "dot", shape: "vh" },
+                  hovertemplate: "%{x|%H:%M:%S}<br><b>mmWave lookback=%{y:.1%}</b><extra></extra>",
+                  showlegend: false },
                 // Prediction probability line
-                { x: xs, y: predYs, type: "scatter", mode: "lines", name: "prediction",
+                { x: xs, y: predYs, type: "scatter", mode: "lines", name: "raw prediction",
                   line: { color: M3_PRIMARY, width: 1.8, shape: "spline", smoothing: 0.4 },
-                  hovertemplate: "%{x|%H:%M:%S}<br><b>p=%{y:.4f}</b><extra></extra>",
+                  hovertemplate: "%{x|%H:%M:%S}<br><b>raw p=%{y:.4f}</b><extra></extra>",
                   showlegend: false },
             ],
             makeHistLayout(nowTs)

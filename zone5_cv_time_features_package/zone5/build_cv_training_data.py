@@ -283,6 +283,9 @@ def build_cv_training_data(
         "target_column": CV_TARGET_COLUMN,
         "model_feature_columns": training.FEATURE_COLUMNS,
         "raw_model_feature_columns": training.RAW_FEATURE_COLUMNS,
+        "engineered_mmwave_feature_columns": training.MMWAVE_RECENCY_FEATURE_COLUMNS,
+        "mmwave_recency_fraction_windows_minutes": training.MMWAVE_RECENCY_FRACTION_WINDOWS_MINUTES,
+        "mmwave_recency_no_prior_minutes": training.MMWAVE_RECENCY_NO_PRIOR_MINUTES,
         "missing_indicator_columns": training.MISSING_INDICATOR_COLUMNS,
         "sample_interval_seconds": training.SAMPLE_INTERVAL_SECONDS,
         "audit_columns_not_model_inputs": [

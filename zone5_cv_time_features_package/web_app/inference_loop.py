@@ -51,6 +51,103 @@ def _json_safe_float(value: Any) -> float | None:
     return f
 
 
+def _json_safe_int(value: Any) -> int | None:
+    safe = _json_safe_float(value)
+    if safe is None:
+        return None
+    return int(safe)
+
+
+def _iso_timestamp(value: Any) -> str | None:
+    try:
+        timestamp = pd.Timestamp(value)
+    except (TypeError, ValueError):
+        return None
+    if pd.isna(timestamp):
+        return None
+    return timestamp.isoformat()
+
+
+def _recent_sensor_window(window: pd.DataFrame, lookback: int | None) -> pd.DataFrame:
+    recent = window.copy()
+    timestamp_col = training.TIMESTAMP_COLUMN
+    if timestamp_col in recent.columns:
+        recent[timestamp_col] = pd.to_datetime(recent[timestamp_col], errors="coerce").dt.floor(
+            training.SAMPLE_INTERVAL_PANDAS_FREQ
+        )
+        recent = recent.dropna(subset=[timestamp_col])
+        recent = recent.sort_values(timestamp_col).drop_duplicates(timestamp_col, keep="last")
+    if lookback is not None:
+        recent = recent.tail(int(lookback))
+    return recent.reset_index(drop=True)
+
+
+def _numeric_series(frame: pd.DataFrame, column: str) -> pd.Series:
+    if column not in frame.columns:
+        return pd.Series(dtype="float64")
+    return pd.to_numeric(frame[column], errors="coerce")
+
+
+def _latest_numeric(frame: pd.DataFrame, column: str) -> float | None:
+    series = _numeric_series(frame, column)
+    if series.empty:
+        return None
+    return _json_safe_float(series.iloc[-1])
+
+
+def _mean_numeric(frame: pd.DataFrame, column: str) -> float | None:
+    series = _numeric_series(frame, column).dropna()
+    if series.empty:
+        return None
+    return _json_safe_float(series.mean())
+
+
+def _occupied_fraction(frame: pd.DataFrame, column: str) -> float | None:
+    series = _numeric_series(frame, column).dropna()
+    if series.empty:
+        return None
+    return _json_safe_float((series > 0.0).mean())
+
+
+def build_sensor_context(
+    window: pd.DataFrame,
+    lookback: int | None,
+    diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Summarize the raw sensor window that produced the live prediction."""
+    recent = _recent_sensor_window(window, lookback)
+    timestamp_col = training.TIMESTAMP_COLUMN
+    lookback_rows = len(recent)
+    if diagnostics is None:
+        diagnostics = training.live_feature_quality_diagnostics(recent, lookback_rows)
+    core_present_fractions = {
+        str(col): _json_safe_float(value)
+        for col, value in (diagnostics.get("core_present_fractions") or {}).items()
+    }
+    sen55_present_fractions = [
+        value
+        for value in (diagnostics.get("sen55_present_fractions") or {}).values()
+        if _json_safe_float(value) is not None
+    ]
+    window_start = window_end = None
+    if timestamp_col in recent.columns and not recent.empty:
+        window_start = _iso_timestamp(recent[timestamp_col].iloc[0])
+        window_end = _iso_timestamp(recent[timestamp_col].iloc[-1])
+    return {
+        "lookback_rows": _json_safe_int(lookback_rows),
+        "window_start": window_start,
+        "window_end": window_end,
+        "mmwave_s5_latest": _latest_numeric(recent, "mmwave_s5"),
+        "mmwave_s5_occupied_fraction": _occupied_fraction(recent, "mmwave_s5"),
+        "power_s5_latest": _latest_numeric(recent, "power_s5"),
+        "power_s5_mean": _mean_numeric(recent, "power_s5"),
+        "core_present_fractions": core_present_fractions,
+        "sen55_present_min_fraction": (
+            _json_safe_float(min(sen55_present_fractions)) if sen55_present_fractions else None
+        ),
+    }
+
+
 @dataclass
 class TickEvent:
     timestamp: str
@@ -63,6 +160,7 @@ class TickEvent:
     ground_truth_occupied: bool | None = None
     ground_truth_timestamp: str | None = None
     ground_truth_age_minutes: float | int | None = None
+    sensor_context: dict[str, Any] | None = field(default=None)
     warning: str | None = None
     error: str | None = None
 
@@ -78,6 +176,7 @@ class TickEvent:
             "ground_truth_occupied": self.ground_truth_occupied,
             "ground_truth_timestamp": self.ground_truth_timestamp,
             "ground_truth_age_minutes": _json_safe_float(self.ground_truth_age_minutes),
+            "sensor_context": self.sensor_context,
             "warning": self.warning,
             "error": self.error,
         }
@@ -215,7 +314,7 @@ class InferenceLoop:
         self.state = new_state
         self._last_error = None
 
-    def _predict_blocking(self) -> tuple[pd.DataFrame, pd.Timestamp, float, list[str]]:
+    def _predict_blocking(self) -> tuple[pd.DataFrame, pd.Timestamp, float, list[str], dict[str, Any]]:
         if self.state.run_dir is None or self.state.lookback is None:
             raise RuntimeError("no model loaded yet")
         window, latest_ts = self.data_source.get_latest_window(self.state.lookback)
@@ -229,13 +328,14 @@ class InferenceLoop:
         )
         probability, diagnostics = prediction
         warnings = list((diagnostics or {}).get("warnings") or [])
-        return window, latest_ts, float(probability), warnings
+        sensor_context = build_sensor_context(window, self.state.lookback, diagnostics=diagnostics)
+        return window, latest_ts, float(probability), warnings, sensor_context
 
     async def _tick_once(self) -> None:
         if self.state.run_dir is None:
             return
         try:
-            _window, latest_ts, probability, warnings = await asyncio.to_thread(self._predict_blocking)
+            _window, latest_ts, probability, warnings, sensor_context = await asyncio.to_thread(self._predict_blocking)
         except Exception as exc:
             message = str(exc)
             error_text = message if message.startswith("LIVE DATA DEGRADED") else f"{type(exc).__name__}: {message}"
@@ -268,6 +368,7 @@ class InferenceLoop:
             reference_time=pd.Timestamp(latest_ts).isoformat(),
             source_label=self.data_source.label,
             **ground_truth_fields,
+            sensor_context=sensor_context,
             warning="; ".join(warnings) if warnings else None,
             error=None,
         )
