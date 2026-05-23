@@ -73,10 +73,15 @@ check_health() {
   local label="$1"
   local url="$2"
   local body
+  local attempt
+  local retries="${HEALTH_CHECK_RETRIES:-30}"
+  local delay="${HEALTH_CHECK_DELAY_SECONDS:-2}"
+  local last_error="health check did not run"
 
   log "Checking $label"
-  body="$(curl --noproxy '*' -fsS "$url")"
-  HEALTH_JSON="$body" "$PYTHON_BIN" - "$label" <<'PY'
+  for attempt in $(seq 1 "$retries"); do
+    if body="$(curl --noproxy '*' -fsS "$url" 2>&1)" &&
+      HEALTH_JSON="$body" "$PYTHON_BIN" - "$label" <<'PY'
 import json
 import os
 import sys
@@ -90,6 +95,16 @@ if not model_run_id:
     raise SystemExit(f"{label}: missing inference.model_run_id")
 print(f"OK: {label} ok=true model_run_id={model_run_id}")
 PY
+    then
+      return 0
+    fi
+    last_error="$body"
+    if [ "$attempt" -lt "$retries" ]; then
+      printf 'Waiting for %s health (%s/%s): %s\n' "$label" "$attempt" "$retries" "$last_error" >&2
+      sleep "$delay"
+    fi
+  done
+  fail "$label health check did not pass at $url after $retries attempts: $last_error"
 }
 
 require_command git
