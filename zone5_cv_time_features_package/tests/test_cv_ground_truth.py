@@ -1906,7 +1906,7 @@ class PackageAuditTests(unittest.TestCase):
         self.assertIn("SNAPSHOT_REFRESH_EVERY_HOURS", compose)
         self.assertIn("RETRAIN_AFTER_SNAPSHOT", compose)
 
-    def test_systemd_units_are_zone5_csv_first(self) -> None:
+    def test_systemd_units_use_root_bsg_with_existing_live_app_contract(self) -> None:
         package_root = Path(__file__).resolve().parents[1]
         unit_dir = package_root / "systemd" / "user"
         unit_names = {path.name for path in unit_dir.glob("*")}
@@ -1926,8 +1926,24 @@ class PackageAuditTests(unittest.TestCase):
         self.assertNotIn("zone1", combined.lower())
         self.assertNotIn("--output-parquet", combined)
         self.assertNotIn("OUTPUT_PARQUET", combined)
-        self.assertIn("SNAPSHOT_REFRESH_EVERY_HOURS=1", combined)
-        self.assertIn("RETRAIN_AFTER_SNAPSHOT=0", combined)
+
+        live_collector = (unit_dir / "zone5-live-collector.service").read_text(encoding="utf-8")
+        trainer = (unit_dir / "zone5-trainer.service").read_text(encoding="utf-8")
+        live_app = (unit_dir / "zone5-live-app.service").read_text(encoding="utf-8")
+
+        self.assertIn("WorkingDirectory=%h/smart-i-lab-testbed", live_collector)
+        self.assertIn("run_bsg_live_collector.sh", live_collector)
+        self.assertIn("SMART_ILAB_DUCKDB_PATH=%h/smart-i-lab-testbed/data/smart_ilab.duckdb", live_collector)
+        self.assertNotIn("SNAPSHOT_REFRESH_EVERY_HOURS=1", live_collector)
+        self.assertNotIn("RETRAIN_AFTER_SNAPSHOT=0", live_collector)
+
+        self.assertIn("WorkingDirectory=%h/smart-i-lab-testbed", trainer)
+        self.assertIn("run_bsg_trainer.sh", trainer)
+        self.assertIn("BSG_MANAGE_SYSTEMD_INGESTION=1", trainer)
+
+        self.assertIn("Environment=PORT=8000", live_app)
+        self.assertIn("Environment=ZONE5_PRODUCTION_POINTER=model/production_run.txt", live_app)
+        self.assertIn("run_live_app.sh", live_app)
 
     def test_person_counter_launchers_use_package_local_defaults(self) -> None:
         package_root = Path(__file__).resolve().parents[1]

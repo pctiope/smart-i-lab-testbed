@@ -1,0 +1,183 @@
+name: ${ZONE5_BSG_COMPOSE_PROJECT_NAME:-zone5-compose}
+
+x-bsg-env: &bsg-env
+  PYTHONUNBUFFERED: "1"
+  PYTHONPATH: /workspace:/workspace/zone5_cv_time_features_package
+  PYTHON_BIN: python3
+  SMART_ILAB_BASE_URL: ${SMART_ILAB_BASE_URL:-}
+  SMART_ILAB_API_KEY: ${SMART_ILAB_API_KEY:-}
+  SMART_ILAB_DUCKDB_PATH: /workspace/data/smart_ilab.duckdb
+
+x-zone5-env: &zone5-env
+  PYTHONUNBUFFERED: "1"
+  PYTHON_BIN: python3
+  PYTHONPATH: /app
+  USER: zone5
+  LOGNAME: zone5
+  HOME: /tmp
+  XDG_CACHE_HOME: /tmp/.cache
+  TORCHINDUCTOR_CACHE_DIR: /tmp/torchinductor
+  YOLO_AUTOINSTALL: "False"
+  ZONE5_SKIP_DOTENV: "1"
+
+x-bsg-volumes: &bsg-volumes
+  - ./data:/workspace/data
+  - ./logs:/workspace/logs
+  - ./stage:/workspace/stage
+  - ./test_runs:/workspace/test_runs
+  - ./zone5_cv_time_features_package/data:/workspace/zone5_cv_time_features_package/data
+  - ./zone5_cv_time_features_package/model:/workspace/zone5_cv_time_features_package/model
+  - ./zone5_cv_time_features_package/logs:/workspace/zone5_cv_time_features_package/logs
+
+x-zone5-volumes: &zone5-volumes
+  - ./zone5_cv_time_features_package/data:/app/data
+  - ./zone5_cv_time_features_package/model:/app/model
+  - ./zone5_cv_time_features_package/logs:/app/logs
+  - ./zone5_cv_time_features_package/cv_counter/masks:/app/cv_counter/masks:ro
+  - ./zone5_cv_time_features_package/cv_counter/models:/app/cv_counter/models:ro
+  - ./zone5_cv_time_features_package/cv_counter/trackers:/app/cv_counter/trackers:ro
+
+x-bsg-service: &bsg-service
+  build:
+    context: .
+    dockerfile: Dockerfile.bsg
+  image: smart-ilab-bsg-zone5:latest
+  init: true
+  user: "${ZONE5_UID:-1000}:${ZONE5_GID:-1000}"
+  stop_grace_period: 30s
+  volumes: *bsg-volumes
+  environment:
+    <<: *bsg-env
+
+x-zone5-service: &zone5-service
+  build:
+    context: ./zone5_cv_time_features_package
+  image: zone5-cv-time-features:latest
+  env_file:
+    - path: ./zone5_cv_time_features_package/web_app/.env
+      required: false
+  init: true
+  user: "${ZONE5_UID:-1000}:${ZONE5_GID:-1000}"
+  stop_grace_period: 30s
+  volumes: *zone5-volumes
+
+services:
+  bsg-init:
+    <<: *bsg-service
+    container_name: zone5-compose-bsg-init
+    command:
+      - bash
+      - -lc
+      - >-
+        python -u api_ingestion.py --all --initialize
+        --history-start "${BSG_HISTORY_START:-2026-05-18}"
+        --log-path logs/bsg_init.log
+    profiles: ["ops"]
+    restart: "no"
+
+  bsg-ingestion:
+    <<: *bsg-service
+    container_name: zone5-compose-bsg-ingestion
+    command:
+      - bash
+      - -lc
+      - >-
+        python -u api_ingestion.py --all
+        --poll "${BSG_POLL_MINUTES:-5}"
+        --log-path logs/bsg_ingestion.log
+    restart: unless-stopped
+
+  bsg-support-tables:
+    <<: *bsg-service
+    container_name: zone5-compose-bsg-support-tables
+    command:
+      - bash
+      - -lc
+      - >-
+        python -u seed_zone5_live_support_tables.py
+        --rebuild
+        --rebuild-training-input
+        --log-path logs/zone5_support_tables.log
+    profiles: ["ops"]
+    restart: "no"
+
+  bsg-smoke:
+    <<: *bsg-service
+    container_name: zone5-compose-bsg-smoke
+    command:
+      - bash
+      - -lc
+      - >-
+        python -u smoke_train_runtime.py
+        --rebuild
+        --lookback "${ZONE5_BSG_SMOKE_LOOKBACK:-12}"
+        --safety-rows "${ZONE5_BSG_SMOKE_SAFETY_ROWS:-3}"
+        --persist-output
+        --report-path test_runs/zone5_duckdb_smoke/runtime_smoke_report.json
+    profiles: ["ops"]
+    restart: "no"
+
+  bsg-trainer:
+    <<: *bsg-service
+    container_name: zone5-compose-bsg-trainer
+    command:
+      - bash
+      - -lc
+      - >-
+        BSG_SEED_SUPPORT_TABLES="${BSG_SEED_SUPPORT_TABLES:-0}"
+        PROMOTE_AFTER_RETRAIN="${PROMOTE_AFTER_RETRAIN:-0}"
+        RETRAIN_N_TRIALS="${ZONE5_BSG_N_TRIALS:-50}"
+        RETRAIN_MAX_EPOCHS="${ZONE5_BSG_MAX_EPOCHS:-20}"
+        RETRAIN_CV_FOLDS="${ZONE5_BSG_CV_FOLDS:-auto}"
+        bash run_bsg_trainer.sh
+    profiles: ["ops"]
+    restart: "no"
+
+  live-app:
+    <<: *zone5-service
+    container_name: zone5-compose-live-app
+    command: ["bash", "run_live_app.sh"]
+    restart: unless-stopped
+    ports:
+      - "${ZONE5_APP_PORT:-8005}:8000"
+    environment:
+      <<: *zone5-env
+      HOST: 0.0.0.0
+      PORT: "8000"
+      ZONE5_PRODUCTION_POINTER: model/production_run.txt
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  vite-frontend:
+    image: node:22-bookworm-slim
+    container_name: zone5-compose-vite-frontend
+    working_dir: /app
+    init: true
+    restart: unless-stopped
+    depends_on:
+      live-app:
+        condition: service_healthy
+    ports:
+      - "${ZONE5_VITE_PORT:-8016}:8016"
+    environment:
+      VITE_INFERENCE_API_URL: ${VITE_INFERENCE_API_URL:-http://live-app:8000}
+    volumes:
+      - ./zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5:/app
+      - zone5-vite-node-modules:/app/node_modules
+    command: ["sh", "-c", "npm ci && npm run build && npm run preview -- --host 0.0.0.0 --port 8016"]
+
+  bsg-shell:
+    <<: *bsg-service
+    container_name: zone5-compose-bsg-shell
+    command: ["bash"]
+    profiles: ["ops"]
+    restart: "no"
+    stdin_open: true
+    tty: true
+
+volumes:
+  zone5-vite-node-modules:

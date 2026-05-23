@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import math
-import random
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +25,8 @@ from zone5.feature_contract import (
     TARGET_COLUMN,
     TIME_FEATURE_COLUMNS,
     TIMESTAMP_COLUMN,
+    MMWAVE_RECENCY_FEATURE_COLUMNS,
+    add_mmwave_recency_features,
     add_time_features,
 )
 
@@ -258,6 +259,7 @@ def _clean_zone_5_training_frame(raw: pd.DataFrame, source_label: str) -> pd.Dat
     frame.loc[labeled_mask, TARGET_COLUMN] = frame.loc[labeled_mask, TARGET_COLUMN].round()
     invalid_label_mask = labeled_mask & ~frame[TARGET_COLUMN].isin([0, 1])
     frame.loc[invalid_label_mask, TARGET_COLUMN] = np.nan
+    frame = add_mmwave_recency_features(frame)
     frame = add_time_features(frame)
     frame = frame.sort_values(TIMESTAMP_COLUMN)
     frame = frame.drop_duplicates(subset=[TIMESTAMP_COLUMN], keep="last")
@@ -397,7 +399,7 @@ def blind_test_split(
             f"found {len(unique_dates)}."
         )
     date_series = pd.to_datetime(frame[TIMESTAMP_COLUMN]).dt.normalize()
-    sampled_test_dates = set(random.sample(unique_dates, k=test_calendar_days))
+    sampled_test_dates = set(unique_dates[-test_calendar_days:])
     splits = {
         "pre_test": frame.loc[~date_series.isin(sampled_test_dates)].copy().reset_index(drop=True),
         "test": frame.loc[date_series.isin(sampled_test_dates)].copy().reset_index(drop=True),
@@ -633,6 +635,7 @@ def fill_values_from_train(train_df: pd.DataFrame) -> dict[str, float]:
 
 def apply_training_preprocessing(frame: pd.DataFrame, fill_values: dict[str, float]) -> pd.DataFrame:
     prepared = _coerce_missing_indicators(frame)
+    prepared = add_mmwave_recency_features(prepared)
     if any(col not in prepared.columns for col in TIME_FEATURE_COLUMNS):
         prepared = add_time_features(prepared)
 
@@ -640,6 +643,8 @@ def apply_training_preprocessing(frame: pd.DataFrame, fill_values: dict[str, flo
         prepared[col] = pd.to_numeric(prepared[col], errors="coerce").fillna(float(fill_values.get(col, 0.0)))
     for col in MISSING_INDICATOR_COLUMNS:
         prepared[col] = pd.to_numeric(prepared[col], errors="coerce").fillna(1).round().clip(0, 1).astype(int)
+    for col in MMWAVE_RECENCY_FEATURE_COLUMNS:
+        prepared[col] = pd.to_numeric(prepared[col], errors="coerce")
     for col in TIME_FEATURE_COLUMNS:
         prepared[col] = pd.to_numeric(prepared[col], errors="coerce")
 

@@ -5,7 +5,7 @@ Wants=zone5-live-collector.service
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/smart-i-lab-testbed/zone5_cv_time_features_package
+WorkingDirectory=%h/smart-i-lab-testbed
 EnvironmentFile=-%h/smart-i-lab-testbed/zone5_cv_time_features_package/web_app/.env
 Environment=PYTHON_BIN=python3
 Environment=PYTHONUNBUFFERED=1
@@ -13,11 +13,14 @@ Environment=OMP_NUM_THREADS=1
 Environment=MKL_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=NUMEXPR_NUM_THREADS=1
-Environment=PYTHONPATH=%h/smart-i-lab-testbed/zone5_cv_time_features_package/.python-packages:%h/smart-i-lab-testbed/zone5_cv_time_features_package
+Environment=PYTHONPATH=%h/smart-i-lab-testbed/.python-packages:%h/smart-i-lab-testbed:%h/smart-i-lab-testbed/zone5_cv_time_features_package/.python-packages:%h/smart-i-lab-testbed/zone5_cv_time_features_package
+Environment=SMART_ILAB_DUCKDB_PATH=%h/smart-i-lab-testbed/data/smart_ilab.duckdb
+Environment=BSG_MANAGE_SYSTEMD_INGESTION=1
+Environment=BSG_INGESTION_SERVICE=zone5-live-collector.service
 Environment=RETRAIN_N_TRIALS=50
 Environment=RETRAIN_MAX_EPOCHS=20
 Environment=RETRAIN_OPTUNA_JOBS=1
 Environment=RETRAIN_BOOTSTRAP_FALLBACK=auto
 Environment=RETRAIN_CV_FOLDS=auto
 Environment=PROMOTE_AFTER_RETRAIN=1
-ExecStart=/usr/bin/env bash -lc 'exec bash run_zone5_trainer.sh >> logs/zone5_trainer.log 2>&1'
+ExecStart=/usr/bin/env bash -lc 'exec bash run_bsg_trainer.sh >> zone5_cv_time_features_package/logs/zone5_trainer.log 2>&1'

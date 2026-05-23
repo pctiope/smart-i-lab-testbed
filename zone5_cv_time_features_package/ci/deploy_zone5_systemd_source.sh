@@ -151,7 +151,15 @@ else
   : > "$CHANGED_FILES"
 fi
 
+install -d "$PRODUCTION_ROOT/data" "$PRODUCTION_ROOT/logs" "$PRODUCTION_ROOT/stage"
 install -d "$PKG_ROOT/data" "$PKG_ROOT/model" "$PKG_ROOT/logs" "$SYSTEMD_USER_DIR"
+
+if [ ! -d "$PRODUCTION_ROOT/.python-packages" ] || has_changed_path "requirements.txt"; then
+  log "Updating BSG Python package target"
+  "$PYTHON_BIN" -m pip install --target "$PRODUCTION_ROOT/.python-packages" --upgrade -r "$PRODUCTION_ROOT/requirements.txt"
+else
+  log "BSG Python package target unchanged"
+fi
 
 if [ ! -d "$PKG_ROOT/.python-packages" ] || has_changed_path "$PKG_REL/requirements.txt"; then
   log "Updating Python package target"
