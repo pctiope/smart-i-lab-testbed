@@ -124,7 +124,7 @@
   \vspace{0.35cm}
   {\color{white}\Large\bfseries Smart i-LAB Testbed\par}
   \vspace{0.35cm}
-  {\color{white!78}\Large Frontend, backend, architecture, CI/CD, ML training, and operations\par}
+  {\color{white!78}\large\parbox{0.58\paperwidth}{Frontend, backend, architecture, CI/CD,\\ML training, and operations}\par}
   \vfill
   {\color{white!72}\normalsize pctiope/smart-i-lab-testbed \hfill May 2026\par}
 \end{frame}
@@ -184,15 +184,22 @@ frontends, model training, deployment, and operational verification?
 \end{columns}
 \end{frame}
 
-\begin{frame}{Zone 5 Dashboard}
+\begin{frame}[shrink=3]{Zone 5 Dashboard}
 \begin{columns}[T,onlytextwidth]
-\column{0.40\textwidth}
-\includegraphics[width=0.72\linewidth,height=0.28\textheight,keepaspectratio]{../../../zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/src/assets/hero.png}
+\column{0.42\textwidth}
+\centering
+\includegraphics[width=0.92\linewidth,height=0.25\textheight,keepaspectratio]{../../../zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/src/assets/hero.png}
+\vspace{0.15em}
+
+{\tiny\textcolor{ILABSteel}{Tracked dashboard visual reference.}\par}
 \vspace{0.35em}
 
-\includegraphics[width=0.78\linewidth,height=0.18\textheight,keepaspectratio]{../../../zone5_cv_time_features_package/cv_counter/masks/cam1-desk5-mask.png}
+\includegraphics[width=0.96\linewidth,height=0.17\textheight,keepaspectratio]{../../../zone5_cv_time_features_package/cv_counter/masks/cam1-desk5-mask.png}
+\vspace{0.15em}
 
-\column{0.56\textwidth}
+{\tiny\textcolor{ILABSteel}{Desk 5 ROI mask used by the CV counter.}\par}
+
+\column{0.54\textwidth}
 \textbf{What the operator sees}
 \begin{itemize}
   \item Occupancy probability, CV truth, recent history, squared error, and sensor context.
@@ -212,11 +219,14 @@ frontends, model training, deployment, and operational verification?
 \begin{columns}[T,onlytextwidth]
 \column{0.48\textwidth}
 \begin{tikzpicture}
-  \node[anchor=west] at (0,0) {\includegraphics[width=0.88\linewidth,height=0.23\textheight,keepaspectratio]{../../../air1_all_zones_cv_time_features_package/masks/cam1-mask-zones.png}};
-  \node[anchor=west] at (0,-1.62) {\includegraphics[width=0.88\linewidth,height=0.23\textheight,keepaspectratio]{../../../air1_all_zones_cv_time_features_package/masks/cam2-mask-zones.png}};
+  \node[anchor=west] at (0,0) {\includegraphics[width=0.94\linewidth,height=0.24\textheight,keepaspectratio]{../../../air1_all_zones_cv_time_features_package/masks/cam1-mask-zones.png}};
+  \node[anchor=west] at (0,-1.70) {\includegraphics[width=0.94\linewidth,height=0.24\textheight,keepaspectratio]{../../../air1_all_zones_cv_time_features_package/masks/cam2-mask-zones.png}};
   \node[anchor=south west,fill=ILABNavy,text=white,inner sep=2pt,font=\tiny] at (0.1,0.72) {cam1 zones};
-  \node[anchor=south west,fill=ILABNavy,text=white,inner sep=2pt,font=\tiny] at (0.1,-0.90) {cam2 zones};
+  \node[anchor=south west,fill=ILABNavy,text=white,inner sep=2pt,font=\tiny] at (0.1,-0.98) {cam2 zones};
 \end{tikzpicture}
+\vspace{0.2em}
+
+{\tiny\textcolor{ILABSteel}{Tracked AIR1 zone masks define the dashboard's per-zone camera coverage.}\par}
 
 \column{0.48\textwidth}
 \textbf{Operational view}
@@ -236,31 +246,29 @@ frontends, model training, deployment, and operational verification?
 
 \sectionframe{02}{Backend}
 
-\begin{frame}{IoT1 REST API}
-\begin{columns}[T,onlytextwidth]
-\column{0.52\textwidth}
+\begin{frame}[shrink=3]{IoT1 REST API}
 \textbf{Role}
 \begin{itemize}
   \item Express API for sensor reads, device registries, transactions, groups, logs, and actuator paths.
-  \item The Digital Twin and CV packages consume the API instead of talking directly to device tables.
+  \item Digital Twin and CV packages consume the API instead of talking directly to device tables.
   \item Device histories are stored in PostgreSQL with TimescaleDB hypertables.
 \end{itemize}
-
-\column{0.44\textwidth}
-\resizebox{\linewidth}{!}{%
-\begin{tikzpicture}[node distance=0.55cm]
-  \node[ilabbox,minimum width=3.0cm] (clients) {Digital Twin\\CV packages\\operators};
-  \node[ilabbox,below=of clients,minimum width=3.0cm,fill=ILABOrange!10,draw=ILABOrange] (api) {Express REST API};
-  \node[ilabstore,below=of api,minimum width=2.6cm] (db) {TimescaleDB\\PostgreSQL};
-  \node[ilabbox,left=1.1cm of db,minimum width=2.4cm] (mqtt) {MQTT\\databridges};
-  \node[ilabbox,right=1.1cm of db,minimum width=2.4cm] (ha) {Home Assistant\\Sensibo};
+\tightsep
+\begin{center}
+\resizebox{0.82\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.72cm and 1.05cm]
+  \node[ilabbox,minimum width=2.75cm] (clients) {Digital Twin\\CV packages\\operators};
+  \node[ilabbox,right=of clients,minimum width=2.75cm,fill=ILABOrange!10,draw=ILABOrange] (api) {Express REST API};
+  \node[ilabstore,right=of api,minimum width=2.65cm] (db) {TimescaleDB\\PostgreSQL};
+  \node[ilabbox,below left=0.60cm and 0.35cm of db,minimum width=2.35cm] (mqtt) {MQTT\\databridges};
+  \node[ilabbox,below right=0.60cm and 0.35cm of db,minimum width=2.35cm] (ha) {Home Assistant\\Sensibo};
   \draw[ilabflow] (clients) -- (api);
   \draw[ilabflow] (api) -- (db);
-  \draw[ilabthinflow] (mqtt) -- (db);
-  \draw[ilabthinflow] (ha) -- (db);
+  \draw[ilabthinflow] (mqtt.north) -- (db.south west);
+  \draw[ilabthinflow] (ha.north) -- (db.south east);
 \end{tikzpicture}
 }
-\end{columns}
+\end{center}
 \end{frame}
 
 \begin{frame}{Security And Storage}
@@ -317,28 +325,28 @@ frontends, model training, deployment, and operational verification?
   \node[laneTitle] at (6.45,2.15) {Backend};
   \node[laneTitle] at (9.95,2.15) {Data/ML};
 
-  \node[box] (operator) at (0,1.2) {operator\\review + act};
-  \node[box] (student) at (0,-0.2) {student / researcher\\remote experiment};
+  \node[box] (dtuser) at (0,1.2) {operator / researcher\\remote experiment};
+  \node[box] (z5user) at (0,-0.2) {Zone 5\\operator};
+  \node[box] (airuser) at (0,-1.6) {AIR1\\operator};
   \node[box] (dt) at (3.15,1.2) {Digital Twin};
   \node[box] (z5) at (3.15,-0.2) {Zone 5\\dashboard};
   \node[box] (air1ui) at (3.15,-1.6) {AIR1\\dashboard};
-  \node[box,fill=ILABOrange!12,draw=ILABOrange] (rest) at (6.45,0.45) {IoT1 REST API};
+  \node[box,fill=ILABOrange!12,draw=ILABOrange] (rest) at (6.45,0.75) {IoT1 REST API};
   \node[box] (fastapi) at (6.45,-1.05) {FastAPI\\model apps};
   \node[ilabstore,minimum width=2.55cm] (db) at (9.75,0.75) {TimescaleDB};
   \node[box] (labels) at (9.75,-0.75) {CV labels\\10-second buckets};
   \node[box] (models) at (9.75,-2.05) {production\\model pointers};
 
-  \draw[ilabflow] (operator) -- (dt);
-  \draw[ilabflow] (student) -- (dt);
-  \draw[ilabflow] (operator) -- (z5);
-  \draw[ilabflow] (operator) -- (air1ui);
+  \draw[ilabflow] (dtuser) -- (dt);
+  \draw[ilabflow] (z5user) -- (z5);
+  \draw[ilabflow] (airuser) -- (air1ui);
   \draw[ilabflow] (dt) -- (rest);
   \draw[ilabflow] (z5) -- (fastapi);
   \draw[ilabflow] (air1ui) -- (fastapi);
   \draw[ilabflow] (rest) -- (db);
   \draw[ilabflow] (fastapi) -- (labels);
   \draw[ilabflow] (models) -- (fastapi);
-  \draw[ilabthinflow] (db) -- (fastapi);
+  \draw[ilabthinflow] (db.south) -- (fastapi.north east);
 \end{tikzpicture}
 }
 \end{frame}
@@ -382,25 +390,33 @@ frontends, model training, deployment, and operational verification?
 
 \sectionframe{04}{CI/CD}
 
-\begin{frame}{GitHub Workflow Topology}
+\begin{frame}[shrink=3]{GitHub Workflow Topology}
 \centering
-\resizebox{0.98\textwidth}{!}{%
-\begin{tikzpicture}[node distance=0.65cm and 0.8cm]
-  \node[ilabbox,minimum width=2.5cm] (audit) {IoT1 audit\\\code{audit.yml}};
-  \node[ilabbox,right=of audit,minimum width=2.65cm] (source) {Zone 5 source\\systemd deploy};
-  \node[ilabbox,right=of source,minimum width=2.65cm] (compose) {Zone 5 staging\\Compose deploy};
-  \node[ilabbox,right=of compose,minimum width=2.65cm] (model) {Model delivery\\artifact install};
-  \node[ilabbox,right=of model,minimum width=2.65cm] (retrain) {Production retrain\\manual-first gate};
+\resizebox{0.84\textwidth}{!}{%
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \node[ilablane,anchor=north west,minimum width=10.9cm,minimum height=1.62cm] at (-3.65,1.45) {};
+  \node[ilablane,anchor=north west,minimum width=10.9cm,minimum height=1.62cm] at (-3.65,-0.44) {};
+  \node[anchor=west,font=\bfseries\scriptsize,text=ILABNavy] at (-3.38,1.16) {\code{main}};
+  \node[anchor=west,font=\bfseries\scriptsize,text=ILABNavy] at (-3.38,-0.68) {\code{cicd/zone5-compose}};
 
-  \draw[ilabflow] (audit) -- (source);
-  \draw[ilabthinflow] (source) -- node[above,font=\tiny] {main} (model);
-  \draw[ilabthinflow] (compose) -- node[below,font=\tiny] {cicd/zone5-compose} (source);
+  \node[ilabbox,minimum width=2.30cm] (audit) at (-5.35,0.30) {repo checks\\\code{audit.yml}};
+  \node[ilabbox,minimum width=2.50cm] (source) at (-2.08,0.48) {source deploy\\user-systemd};
+  \node[ilabbox,minimum width=2.50cm] (retrain) at (1.05,0.48) {production retrain\\manual gate};
+  \node[ilabbox,minimum width=2.50cm] (model) at (4.18,0.48) {model delivery\\pointer flip};
+  \node[ilabbox,minimum width=2.85cm] (compose) at (-1.92,-1.38) {staging Compose\\ports 8005 / 8016};
+  \node[ilabbox,minimum width=2.65cm] (stagecheck) at (1.52,-1.38) {config + build\\deploy check};
+
+  \draw[ilabflow] (audit.east) to[out=22,in=180] (source.west);
+  \draw[ilabflow] (audit.east) to[out=-25,in=180] (compose.west);
+  \draw[ilabflow] (source) -- (retrain);
   \draw[ilabflow] (retrain) -- (model);
+  \draw[ilabflow] (compose) -- (stagecheck);
 \end{tikzpicture}
 }
-\tightsep
-\small
-\begin{tabularx}{\textwidth}{@{}lX@{}}
+\vspace{-0.20em}
+\scriptsize
+\renewcommand{\arraystretch}{0.92}
+\begin{tabularx}{0.98\textwidth}{@{}lX@{}}
 \toprule
 \textbf{Workflow} & \textbf{Ownership} \\
 \midrule
@@ -410,6 +426,7 @@ frontends, model training, deployment, and operational verification?
 \code{zone5-model-delivery.yml} & Installs a vetted model artifact and updates the production pointer. \\
 \bottomrule
 \end{tabularx}
+\renewcommand{\arraystretch}{1.0}
 \end{frame}
 
 \begin{frame}{Staging Compose Vs. Production systemd}
@@ -442,14 +459,14 @@ frontends, model training, deployment, and operational verification?
 
 \begin{frame}{Retrain And Model Delivery}
 \centering
-\resizebox{0.95\textwidth}{!}{%
-\begin{tikzpicture}[node distance=0.60cm and 0.75cm]
-  \node[ilabbox,minimum width=2.2cm] (timer) {manual or gated\\schedule};
-  \node[ilabbox,right=of timer,minimum width=2.35cm] (service) {\code{zone5-trainer}\\systemd oneshot};
-  \node[ilabbox,right=of service,minimum width=2.35cm] (snapshot) {stable\\snapshot};
-  \node[ilabbox,right=of snapshot,minimum width=2.35cm] (train) {train + validate\\promotion checks};
-  \node[ilabbox,right=of train,minimum width=2.35cm] (artifact) {packaged\\model artifact};
-  \node[ilabbox,right=of artifact,minimum width=2.35cm] (pointer) {\code{production_run}\\pointer flip};
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.56cm and 0.62cm]
+  \node[ilabbox,minimum width=2.45cm,minimum height=0.95cm] (timer) {manual / gated\\trigger};
+  \node[ilabbox,right=of timer,minimum width=2.45cm,minimum height=0.95cm] (service) {\code{zone5-trainer}\\oneshot};
+  \node[ilabbox,right=of service,minimum width=2.45cm,minimum height=0.95cm] (snapshot) {stable\\CSV snapshot};
+  \node[ilabbox,right=of snapshot,minimum width=2.45cm,minimum height=0.95cm] (train) {train + validate\\checks};
+  \node[ilabbox,right=of train,minimum width=2.45cm,minimum height=0.95cm] (artifact) {model\\artifact};
+  \node[ilabbox,right=of artifact,minimum width=2.45cm,minimum height=0.95cm] (pointer) {production\\pointer};
 
   \draw[ilabflow] (timer) -- (service);
   \draw[ilabflow] (service) -- (snapshot);
@@ -579,7 +596,7 @@ frontends, model training, deployment, and operational verification?
 \toprule
 \textbf{Contract guard} & \textbf{Why it matters} \\
 \midrule
-\code{zone_id} is retained but not an input & It supports grouping, splits, audit, and display without becoming a shortcut feature. \\
+\code{zone_id} is retained but not an input & Supports grouping, splits, audit, and display only. \\
 Power and mmWave are excluded & AIR1 parity does not import Zone 5-specific signals. \\
 Production pointer gates inference & The UI can be healthy before a promoted model exists. \\
 \bottomrule
@@ -591,21 +608,21 @@ Production pointer gates inference & The UI can be healthy before a promoted mod
 \begin{frame}{Deployment Architecture}
 \centering
 \resizebox{0.98\textwidth}{!}{%
-\begin{tikzpicture}[node distance=0.70cm and 0.85cm]
-  \node[ilabbox,minimum width=2.65cm] (repo) {GitHub repo};
-  \node[ilabbox,right=of repo,minimum width=2.65cm] (runner) {self-hosted\\runner};
-  \node[ilabbox,above right=0.35cm and 0.95cm of runner,minimum width=2.75cm] (prod) {production checkout\\user-systemd};
-  \node[ilabbox,below right=0.35cm and 0.95cm of runner,minimum width=2.75cm] (stage) {staging checkout\\Docker Compose};
-  \node[ilabbox,right=1.05cm of prod,minimum width=2.7cm] (services) {live services\\ports 8000 / 8015};
-  \node[ilabbox,right=1.05cm of stage,minimum width=2.7cm] (compose) {staging services\\ports 8005 / 8016};
-  \node[ilabstore,below=0.65cm of services,minimum width=2.7cm] (state) {server runtime\\data, model, logs};
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \node[ilabbox,minimum width=2.45cm] (repo) at (-5.20,0.58) {GitHub repo};
+  \node[ilabbox,minimum width=2.55cm] (runner) at (-2.30,0.58) {self-hosted\\runner};
+  \node[ilabbox,minimum width=2.75cm] (prod) at (0.70,1.28) {production checkout\\user-systemd};
+  \node[ilabbox,minimum width=2.75cm] (stage) at (0.70,-0.12) {staging checkout\\Docker Compose};
+  \node[ilabbox,minimum width=2.80cm] (services) at (4.10,1.28) {production services\\ports 8000 / 8015};
+  \node[ilabbox,minimum width=2.80cm] (compose) at (4.10,-0.12) {staging services\\ports 8005 / 8016};
+  \node[ilabstore,minimum width=3.0cm] (state) at (4.10,-1.95) {server runtime\\data / model / logs};
   \draw[ilabflow] (repo) -- (runner);
   \draw[ilabflow] (runner) -- (prod);
   \draw[ilabflow] (runner) -- (stage);
   \draw[ilabflow] (prod) -- (services);
   \draw[ilabflow] (stage) -- (compose);
-  \draw[ilabthinflow] (state) -- (services);
-  \draw[ilabthinflow] (state) -- (compose);
+  \draw[ilabthinflow] (state.north west) to[out=150,in=250] (services.south west);
+  \draw[ilabthinflow] (state.north east) to[out=30,in=290] (compose.south east);
 \end{tikzpicture}
 }
 \tightsep
