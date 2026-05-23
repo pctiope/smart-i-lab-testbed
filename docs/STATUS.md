@@ -1,6 +1,6 @@
 # Smart i-LAB IoT1 — Deployment Status
 
-_Last updated: 2026-05-12 (cutover not yet executed)._
+_Last updated: 2026-05-23 (cutover not yet executed)._
 
 This is the single source of truth for "where are we in the rollout?". Update
 this file whenever a checkbox state changes. Append to "History" rather than
@@ -53,6 +53,8 @@ has been deployed to the running container at `:80`.
   script is safe to leave in a deploy pipeline.
 - [x] **`dedupe_per_device.py`** added — emits per-table dedupe SQL the
   operator can review.
+- [x] **Technical overview deck added** — Beamer source and compiled PDF live in
+  `docs/presentations/smart-ilab-testbed-overview/`.
 
 ---
 
@@ -144,5 +146,8 @@ These all require touching production infrastructure. **Do them in order.**
   fallback, dedupe orchestrator, bootstrap-admin flag added.
 - 2026-05-12 — Docs consolidated into `testbed/docs/`. This STATUS file
   written. **Next action**: step 1 (backup) is up to the operator.
+- 2026-05-23 — Technical overview presentation added under
+  `docs/presentations/smart-ilab-testbed-overview/`. IoT1 production cutover
+  remains pending; the next deployment action is still step 1 (backup).
 
 (Append future events here as deployment progresses.)

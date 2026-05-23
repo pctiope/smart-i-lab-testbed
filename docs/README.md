@@ -5,9 +5,10 @@ If you just arrived and don't know where to start: read this file, then read
 
 ## What this folder contains
 
-Seven docs covering the IoT1 security remediation that landed on 2026-05-11 / 12.
-None of them are required to *run* the stack -- but together they explain why
-the code is shaped the way it is and what's still on the operator's plate.
+The core docs cover the IoT1 security remediation that landed on 2026-05-11 /
+12. None of them are required to *run* the stack -- but together they explain
+why the code is shaped the way it is and what's still on the operator's plate.
+The presentation folder adds a slide-format technical overview for briefings.
 
 | File | Read it when... |
 |---|---|
@@ -19,6 +20,7 @@ the code is shaped the way it is and what's still on the operator's plate.
 | `IOT1_REMEDIATION.md` | When you're an agent picking up where the previous agent left off. Patterns, pitfalls, troubleshooting recipes. |
 | `IOT1_CV_COMPATIBILITY.md` | When you need to verify the air1/zone5 CV consumer packages survive the cutover. |
 | `sync_iot1_to_testbed.ps1` | When the upstream CARE-SSL/IoT1 changes and you want to mirror the changes here. Dry-runs by default. |
+| `presentations/smart-ilab-testbed-overview/README.md` | When you need the slide deck source/PDF for a frontend/backend/CI-CD/ML/deployment walkthrough. |
 
 ## If you are an agent, start with
 
@@ -31,6 +33,13 @@ the code is shaped the way it is and what's still on the operator's plate.
 1. `STATUS.md` -- find the next action item.
 2. `IOT1_PRE_DEPLOYMENT.md` -- only relevant pieces (e.g. "Step 4 -- Deploy" once steps 1-3 are done).
 3. `IOT1_DEPLOY_DIFF.md` if you need to brief stakeholders before cutting over.
+
+## If you need a presentation, start with
+
+1. `presentations/smart-ilab-testbed-overview/smart-ilab-testbed-overview.pdf`
+   for the compiled technical overview.
+2. `presentations/smart-ilab-testbed-overview/smart-ilab-testbed-overview.tex`
+   if you need to edit the deck.
 
 ## If you are a security reviewer, start with
 
