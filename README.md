@@ -9,7 +9,7 @@ Primary guides:
 - `README/RUNTIME_GUIDE.md` — local runtime, live smoke, seeding, and troubleshooting
 - `README/README_training_migrated.md` — migrated Zone 5 SQL-only training notes
 
-The root test suite is now consolidated under `TEST/`.
+The canonical root test suite is consolidated under `TEST/`.
 
 Primary test entrypoints:
 
@@ -17,3 +17,6 @@ Primary test entrypoints:
 - `TEST/test_live.py`
 - `TEST/test_training_migrated.py`
 - `TEST/test_train.py`
+
+For compatibility, root-level `test_pipeline.py` and `test_live.py` remain as
+mirrors of the `TEST/` modules.

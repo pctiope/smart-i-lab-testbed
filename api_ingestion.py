@@ -75,12 +75,8 @@ run_bronze_to_silver        = _b2s.run_bronze_to_silver
 run_silver_to_gold          = _s2g.run_silver_to_gold
 
 # ── API credentials ───────────────────────────────────────────────────────────
-BASE_URL = os.getenv("SMART_ILAB_BASE_URL")
-API_KEY = os.getenv("SMART_ILAB_API_KEY")
-if not BASE_URL or not API_KEY:
-    raise RuntimeError(
-        "Missing Smart i-Lab API credentials. Set SMART_ILAB_BASE_URL and SMART_ILAB_API_KEY."
-    )
+API_BASE_URL_ENV = "SMART_ILAB_BASE_URL"
+API_KEY_ENV = "SMART_ILAB_API_KEY"
 FULL_HISTORY_START = datetime(2000, 1, 1, tzinfo=timezone.utc)
 LOGGER = logging.getLogger("api_ingestion")
 
@@ -523,9 +519,16 @@ def main():
     if bootstrap_start is None and (args.full_history or args.initialize):
         bootstrap_start = FULL_HISTORY_START
 
+    base_url = os.getenv(API_BASE_URL_ENV)
+    if not base_url:
+        parser.error(f"Missing required environment variable: {API_BASE_URL_ENV}")
+    api_key = os.getenv(API_KEY_ENV)
+    if not api_key:
+        parser.error(f"Missing required environment variable: {API_KEY_ENV}")
+
     device_types  = DEVICE_TYPES if args.all else [args.device_type]
     flush_at_exit = args.poll == 0  # always flush on one-shot runs
-    client        = SmartILabAPIClient(BASE_URL, API_KEY)
+    client        = SmartILabAPIClient(base_url, api_key)
     configure_logging(args.log_path)
     _log(f"Starting api_ingestion with device_types={device_types}, initialize={args.initialize}, poll={args.poll}, force_rebuild={args.force_rebuild}, log_path={args.log_path}")
     ensure_database_layout()

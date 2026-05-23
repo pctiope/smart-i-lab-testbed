@@ -27,9 +27,7 @@ Runtime writes go to DuckDB tables via upsert_table_dataframe().
 from __future__ import annotations
 
 import math
-from datetime import datetime
 from importlib import import_module as _im
-from pathlib import Path
 from typing import Any
 
 import numpy as np

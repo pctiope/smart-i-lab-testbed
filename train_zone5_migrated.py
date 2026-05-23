@@ -10,8 +10,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 ROOT = Path(__file__).resolve().parent
 LEGACY_ZONE5_PACKAGE_CANDIDATES = (
     ROOT / "Legacy" / "zone5_cv_time_features_package",
