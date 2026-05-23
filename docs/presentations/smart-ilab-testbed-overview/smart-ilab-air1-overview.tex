@@ -3,15 +3,45 @@
 \input{smart-ilab-presentation-shared.tex}
 
 \title{Smart i-LAB AIR1 All-Zones}
-\subtitle{Applied research overview for room-level all-zones occupancy estimation}
+\subtitle{Technical review of the shared all-zones occupancy pipeline}
 \author{pctiope/smart-i-lab-testbed}
 \date{May 2026}
 
 \begin{document}
 
-\decktitleframe{Applied Research Overview}{Smart i-LAB AIR1 All-Zones}{Room-level occupancy estimation from two cameras and shared environmental sensing}{../../../Smart-iLab_DigitalTwin/assets/smart_ilab_3d/Smart_I-LAB_floor3d_room_8_44.jpg}
+\decktitleframe{Technical Review}{Smart i-LAB AIR1 All-Zones}{Room-level occupancy estimation from two camera views, per-zone labels, shared environmental sensing, and readiness gates}{../../../Smart-iLab_DigitalTwin/assets/smart_ilab_3d/Smart_I-LAB_floor3d_room_8_44.jpg}
 
-\begin{frame}[shrink=6]{Problem Motivation}
+\begin{frame}[shrink=4]{Technical Review Scope}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{What is reviewed}
+\begin{itemize}
+  \item One shared model for AIR-1 zones 1--15.
+  \item Two-camera CV labels, long-form rows, feature contract, training, serving, and readiness.
+  \item Dashboard usefulness before and after a production model pointer exists.
+\end{itemize}
+
+\column{0.48\textwidth}
+\textbf{What is explicitly out of scope}
+\begin{itemize}
+  \item Zone 5 power and mmWave model inputs.
+  \item Zone 5-specific CI/CD claims, except as contrast.
+  \item Populated environment values, camera URLs, credentials, live logs, and generated run metrics.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{center}
+\chip{Zones 1--15}
+\hspace{0.4em}
+\chip{Two cameras}
+\hspace{0.4em}
+\chip{Long-form rows}
+\hspace{0.4em}
+\chip{No power/mmWave}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=6]{Problem Setting}
 \begin{columns}[T,onlytextwidth]
 \column{0.49\textwidth}
 \begin{tikzpicture}
@@ -27,181 +57,565 @@
 \column{0.47\textwidth}
 \begin{block}{Research setting}
 AIR1 asks for room-level occupancy over zones 1--15. The evidence is not one
-desk, one camera, or one sensor stream: two camera views, per-zone masks, shared
-AIR-1 readings, SEN55 readings, and readiness gates all shape the result.
+desk, one camera, or one sensor stream: two camera views, per-zone masks,
+shared AIR-1 readings, SEN55 readings, and readiness gates all shape the result.
 \end{block}
 \tightsep
 \begin{itemize}
-  \item Camera coverage differs by zone and can be missing for a timestamp.
-  \item The dashboard should remain useful before a production model is promoted.
-  \item The model must not borrow Zone 5 power or mmWave assumptions.
+  \item Camera coverage differs by zone and timestamp.
+  \item Missing camera coverage should stay unknown, not become vacancy.
+  \item The dashboard must remain useful while production inference is gated.
 \end{itemize}
 \end{columns}
 \end{frame}
 
-\begin{frame}[shrink=3]{Research Gap}
-\begin{columns}[T,onlytextwidth]
-\column{0.48\textwidth}
-\textbf{What all-zones changes}
-\begin{itemize}
-  \item A room model must preserve per-zone labels, not collapse the room into one binary stream.
-  \item Long-form \code{timestamp + zone_id} rows need split, grouping, audit, and display discipline.
-  \item Missing camera coverage should remain unknown, not become vacancy.
-\end{itemize}
-
-\column{0.48\textwidth}
-\begin{block}{Gap addressed here}
-\small
-AIR1 is framed as an all-zones applied-research pipeline: per-zone CV labels,
-two-camera coverage, shared environmental features, null-preserving labels, and
-model-readiness gates are evaluated together.
-\end{block}
-\tightsep
-\chip{Zones 1--15}
-\hspace{0.35em}
-\chip{Two cameras}
-\hspace{0.35em}
-\chip{No power/mmWave}
-\end{columns}
-\end{frame}
-
-\begin{frame}{Research Questions}
+\begin{frame}[shrink=4]{Research Questions}
 \begin{enumerate}
-  \item Can one shared model represent zones 1--15 from long-form \code{timestamp + zone_id} rows?
+  \item Can one shared temporal model represent zones 1--15 from long-form \code{timestamp + zone_id} rows?
   \item Can per-zone CV labels stay null when coverage is missing instead of becoming false negatives?
-  \item Can the AIR1 dashboard stay useful while inference is gated by production model readiness?
+  \item Can \code{zone_id} support grouping, audits, splits, and display without entering the model input?
+  \item Can the all-zones dashboard expose camera freshness and readiness before a production model is promoted?
 \end{enumerate}
 \tightsep
 \begin{center}
 \parbox{0.84\textwidth}{\centering
-\small The AIR1 deck keeps Zone 5-specific power, mmWave, and CI/CD scope out of the model narrative except as contrast.}
+\small The deck expands the applied-research story into a technical review of source acquisition, labels, features, windowing, model architecture, validation, serving, deployment, and limitations.}
 \end{center}
 \end{frame}
 
-\begin{frame}[shrink=4]{System And Method Overview}
+\begin{frame}[shrink=4]{System Scope And Ownership}
+\begin{columns}[T,onlytextwidth]
+\column{0.50\textwidth}
+\textbf{Package scope}
+\begin{itemize}
+  \item Package: AIR1 all-zones package.
+  \item Runtime state roots: \code{data/}, \code{model/}, \code{logs/}.
+  \item Training target: \code{occupied}.
+  \item Row key: \code{timestamp + zone_id}.
+  \item Valid model zones: 1--15.
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Service ownership}
+\begin{itemize}
+  \item Camera trackers own per-zone count evidence.
+  \item Aggregator owns 10-second zone buckets.
+  \item Live collector owns joined CSV/Parquet rows.
+  \item Trainer and promoter own candidate and production pointers.
+  \item FastAPI owns readiness, history, streams, and per-zone dashboard output.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{block}{Contract boundary}
+\small AIR1 is not Zone 5 plus more zones. It has no power or mmWave inputs; \code{zone_id} is not a feature channel.
+\end{block}
+\end{frame}
+
+\begin{frame}[shrink=5]{Package Structure}
+\scriptsize
+\renewcommand{\arraystretch}{1.08}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Path} & \textbf{Review role} \\
+\midrule
+\pathref{air1_all_zones/feature_contract.py} & Declares valid zones, raw inputs, missing indicators, time columns, target, sample interval, and lookback choices. \\
+\pathref{rtsp_zone_tracker.py} & Camera-zone tracker that emits per-zone count payloads. \\
+\pathref{air1_all_zones/occupancy_mqtt_aggregator.py} & Merges per-zone messages into 10-second \code{timestamp + zone_id} CV rows. \\
+\pathref{air1_all_zones/build_cv_training_data.py} & Joins features and labels while excluding Table 16 and preserving null labels. \\
+\pathref{air1_all_zones/training.py} & Shared 1D CNN, Optuna search, timestamp-grouped splits, and artifact metadata. \\
+\pathref{web_app/main.py} & FastAPI all-zones dashboard endpoints and camera freshness health. \\
+\pathref{tests/test_all_zones_contract.py} & Regression tests for feature exclusion, per-zone labels, payload parsing, and readiness behavior. \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+\end{frame}
+
+\begin{frame}[shrink=3]{End-To-End Runtime Flow}
+\centering
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.55cm and 0.70cm]
+  \node[ilabbox,minimum width=2.25cm] (cam1) {cam1\\zone tracker};
+  \node[ilabbox,below=of cam1,minimum width=2.25cm] (cam2) {cam2\\zone tracker};
+  \node[ilabbox,right=of cam1,yshift=-0.50cm,minimum width=2.65cm] (mqtt) {per-zone MQTT\\payloads};
+  \node[ilabbox,right=of mqtt,minimum width=2.55cm] (agg) {aggregator\\10-second labels};
+  \node[ilabbox,below=of agg,minimum width=2.55cm] (sources) {AIR-1 + SEN55\\features};
+  \node[ilabbox,right=of agg,yshift=-0.50cm,minimum width=2.65cm] (rows) {long-form\\training rows};
+  \node[ilabbox,right=of rows,minimum width=2.45cm] (trainer) {shared model\\trainer};
+  \node[ilabbox,right=of trainer,minimum width=2.45cm] (pointer) {production\\pointer};
+  \node[ilabbox,right=of pointer,minimum width=2.45cm,fill=ILABOrange!12,draw=ILABOrange] (app) {FastAPI\\all-zones app};
+  \draw[ilabflow] (cam1) -- (mqtt);
+  \draw[ilabflow] (cam2) -- (mqtt);
+  \draw[ilabflow] (mqtt) -- (agg);
+  \draw[ilabflow] (agg) -- (rows);
+  \draw[ilabflow] (sources) -- (rows);
+  \draw[ilabflow] (rows) -- (trainer);
+  \draw[ilabflow] (trainer) -- (pointer);
+  \draw[ilabflow] (pointer) -- (app);
+  \draw[ilabthinflow] (rows) -- (app);
+  \draw[ilabthinflow] (cam1) .. controls +(0,1.6) and +(0,1.6) .. (app);
+\end{tikzpicture}
+}
+\tightsep
+\begin{center}
+\chip{Track}
+\hspace{0.35em}
+\chip{Aggregate}
+\hspace{0.35em}
+\chip{Join}
+\hspace{0.35em}
+\chip{Train}
+\hspace{0.35em}
+\chip{Promote}
+\hspace{0.35em}
+\chip{Serve}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=5]{Active Services}
+\scriptsize
+\renewcommand{\arraystretch}{1.08}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Unit} & \textbf{Owned behavior} \\
+\midrule
+\code{air1-all-zones-person-counter-cam1.service} & Runs cam1 zone tracker and writes cam1 per-zone evidence. \\
+\code{air1-all-zones-person-counter-cam2.service} & Runs cam2 zone tracker and writes cam2 per-zone evidence. \\
+\code{air1-all-zones-mqtt-aggregator.service} & Converts per-zone messages into \code{timestamp + zone_id} 10-second labels. \\
+\code{air1-all-zones-sen55-collector.service} & Buckets SEN55 readings and writes CSV/Parquet air-quality rows. \\
+\code{air1-all-zones-live-collector.service} & Appends joined all-zones CSV/Parquet rows and metadata. \\
+\code{air1-all-zones-live-app.service} & Serves health, history, SSE, per-camera MJPEG, and all-zones current state. \\
+\code{air1-all-zones-trainer.timer/service} & Runs scheduled oneshot retraining and promotion when readiness allows. \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+\end{frame}
+
+\begin{frame}[shrink=4]{Two-Camera Coverage}
 \begin{columns}[T,onlytextwidth]
 \column{0.48\textwidth}
-\textbf{Method}
+\textbf{cam1 coverage}
 \begin{itemize}
-  \item Use cam1 and cam2 masks to emit per-zone CV counts.
-  \item Aggregate labels into 10-second \code{timestamp + zone_id} buckets.
-  \item Join AIR-1 and SEN55 features into long-form rows for model zones 1--15.
-  \item Use \code{occupied} as the target and keep \code{zone_id} for grouping, audits, splits, and display.
-  \item Gate live inference on a promoted production pointer while keeping camera/dashboard health visible.
+  \item Zones: 4, 9, 10, 11, 12, 13, 14, 15.
+  \item Table 16 can appear as excluded camera context.
+  \item Emits per-zone counts for covered zones.
+\end{itemize}
+
+\column{0.48\textwidth}
+\textbf{cam2 coverage}
+\begin{itemize}
+  \item Zones: 1, 2, 3, 5, 6, 7, 8.
+  \item Complements cam1 coverage.
+  \item Missing coverage is not converted into a zero count.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{block}{Review boundary}
+\small The model contract accepts zones 1--15. Table 16 is intentionally excluded until the feature contract changes.
+\end{block}
+\end{frame}
+
+\begin{frame}[shrink=4]{Per-Zone MQTT Payloads}
+\begin{columns}[T,onlytextwidth]
+\column{0.50\textwidth}
+\textbf{Payload meaning}
+\begin{itemize}
+  \item Counts are keyed by zone for a camera observation.
+  \item Payloads may include unlabeled zones.
+  \item Camera IDs and label source are kept for auditability.
+  \item Table 16 is ignored by the model-label path.
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Aggregator behavior}
+\begin{itemize}
+  \item Buckets rows at the 10-second sample cadence.
+  \item Writes unique \code{timestamp + zone_id} keys.
+  \item Preserves nullable counts for unlabeled coverage.
+  \item Outputs CSV and Parquet label tables.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{center}
+\chip{Per-zone}
+\hspace{0.45em}
+\chip{Camera-audited}
+\hspace{0.45em}
+\chip{Nullable}
+\hspace{0.45em}
+\chip{Table 16 excluded}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=4]{Label Contract}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{Target semantics}
+\begin{itemize}
+  \item Target: \code{occupied}.
+  \item Key: \code{timestamp + zone_id}.
+  \item Positive rule: median \code{occupancy_count >= 1}.
+  \item Negative rule: median count is below 1.
+  \item Missing label rule: \code{occupied = null}.
+\end{itemize}
+
+\column{0.48\textwidth}
+\textbf{What null protects}
+\begin{itemize}
+  \item Camera not covering a zone at a timestamp.
+  \item Missing per-zone payload evidence.
+  \item Late or absent MQTT messages.
+  \item Validation from treating unknown as confidently empty.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{block}{Contract test coverage}
+\small Regression tests assert that missing per-zone labels stay null and that Table 16 is excluded from cleaned labels.
+\end{block}
+\end{frame}
+
+\begin{frame}[shrink=5]{Long-Form Training Rows}
+\scriptsize
+\renewcommand{\arraystretch}{1.08}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Column family} & \textbf{Role} \\
+\midrule
+\code{timestamp} & 10-second sample boundary. \\
+\code{zone_id} & Row key, grouping handle, split/audit/display field; not a model feature. \\
+AIR-1 raw & \code{temp}, \code{rh}, \code{co2}, \code{pm25}. \\
+SEN55 raw & PM, temperature, humidity, VOC, and NOx columns. \\
+Missing indicators & \code{*_missing} channels for AIR-1 and SEN55 raw inputs; included in AIR1 model inputs. \\
+Time features & Hour and day-of-week sin/cos cycles. \\
+CV target & \code{occupied}; nullable when CV evidence is absent. \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+\tightsep
+\begin{center}
+\parbox{0.84\textwidth}{\centering\small A single timestamp normally expands into up to 15 rows, one per valid model zone.}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=4]{AIR1 Feature Contract}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{Model inputs}
+\begin{itemize}
+  \item AIR-1 environmental columns.
+  \item Shared SEN55 columns.
+  \item Missing indicators for those raw columns.
+  \item Deterministic time features.
+\end{itemize}
+
+\column{0.48\textwidth}
+\textbf{Excluded from model input}
+\begin{itemize}
+  \item \code{zone_id}: grouping, audit, split, display only.
+  \item Power fields: Zone 5-only source family.
+  \item mmWave fields: Zone 5-only source family.
+  \item Table 16 labels and rows.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{center}
+\chip{AIR-1}
+\hspace{0.45em}
+\chip{SEN55}
+\hspace{0.45em}
+\chip{Missing indicators}
+\hspace{0.45em}
+\chip{Time}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=4]{AIR1 Versus Zone 5 Contract}
+\scriptsize
+\renewcommand{\arraystretch}{1.12}
+\begin{tabularx}{\textwidth}{@{}lXX@{}}
+\toprule
+\textbf{Topic} & \textbf{AIR1 All-Zones} & \textbf{Zone 5} \\
+\midrule
+Row shape & Long-form \code{timestamp + zone_id}. & One row per Zone 5 timestamp. \\
+Valid scope & Zones 1--15; Table 16 excluded. & Zone 5 only. \\
+Target & \code{occupied}. & \code{zone_occupied}. \\
+Power input & Excluded. & \code{power_s5}. \\
+mmWave input & Excluded. & \code{mmwave_s5} plus recency. \\
+Missingness & \code{*_missing} included as model inputs. & Missingness retained for diagnostics, not model inputs. \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+\tightsep
+\begin{block}{Why the contrast matters}
+\small Porting Zone 5 runtime safety patterns does not mean importing Zone 5 sensor assumptions into AIR1.
+\end{block}
+\end{frame}
+
+\begin{frame}[shrink=4]{Live Collector And Joined Snapshots}
+\begin{columns}[T,onlytextwidth]
+\column{0.50\textwidth}
+\textbf{Live collector inputs}
+\begin{itemize}
+  \item AIR-1 histories for the valid zone device set.
+  \item Package-local SEN55 bucket table.
+  \item Package-local all-zones CV label table.
+  \item Recent backfill to catch late labels.
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Live collector outputs}
+\begin{itemize}
+  \item Joined training CSV.
+  \item Joined training Parquet.
+  \item Joined-table metadata JSON.
+  \item Rolling rows with generated artifacts kept out of git.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{center}
+\parbox{0.84\textwidth}{\centering\small The joined table is the shared evidence source; the trainer snapshots it before fitting.}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=4]{Production Pointer Readiness}
+\centering
+\resizebox{0.94\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.72cm and 0.88cm]
+  \node[ilabstore,minimum width=2.35cm] (joined) {joined\\CSV/Parquet};
+  \node[ilabbox,right=of joined,minimum width=2.45cm] (snapshot) {stable\\training snapshot};
+  \node[ilabbox,right=of snapshot,minimum width=2.45cm] (fit) {fit shared\\all-zones CNN};
+  \node[ilabbox,right=of fit,minimum width=2.45cm] (current) {candidate\\\code{current_run.txt}};
+  \node[ilabbox,right=of current,minimum width=2.55cm,fill=ILABOrange!12,draw=ILABOrange] (prod) {serving gate\\\code{production_run.txt}};
+  \node[ilabbox,below=0.78cm of prod,minimum width=2.55cm] (app) {FastAPI\\history + health};
+  \draw[ilabflow] (joined) -- (snapshot);
+  \draw[ilabflow] (snapshot) -- (fit);
+  \draw[ilabflow] (fit) -- (current);
+  \draw[ilabflow] (current) -- (prod);
+  \draw[ilabflow] (prod) -- (app);
+\end{tikzpicture}
+}
+\tightsep
+\begin{block}{Readiness semantics}
+\small Missing \code{production_run.txt} means production inference is not ready, but camera freshness, labels, and dashboard health can still be useful.
+\end{block}
+\end{frame}
+
+\begin{frame}[shrink=4]{Shared Rolling Windows}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{Window construction}
+\begin{itemize}
+  \item Candidate lookbacks: 15, 60, and 180 minutes.
+  \item Rows are grouped by zone for sequence construction.
+  \item Timestamp grouping keeps all zones for one timestamp in the same split.
+  \item \code{zone_id} is carried with windows for audit/display, not as a channel.
 \end{itemize}
 
 \column{0.48\textwidth}
 \centering
 \resizebox{0.98\linewidth}{!}{%
-\begin{tikzpicture}[node distance=0.62cm and 0.72cm]
-  \node[ilabbox,minimum width=2.25cm] (cam1) {cam1\\zone mask};
-  \node[ilabbox,below=of cam1,minimum width=2.25cm] (cam2) {cam2\\zone mask};
-  \node[ilabbox,right=of cam1,yshift=-0.44cm,minimum width=2.45cm] (labels) {per-zone\\10-second labels};
-  \node[ilabbox,right=of labels,minimum width=2.45cm] (features) {AIR-1 + SEN55\\long-form rows};
-  \node[ilabbox,right=of features,minimum width=2.45cm,fill=ILABOrange!12,draw=ILABOrange] (model) {shared AIR1\\model};
-  \node[ilabbox,right=of model,minimum width=2.35cm] (app) {dashboard +\\health};
-  \draw[ilabflow] (cam1) -- (labels);
-  \draw[ilabflow] (cam2) -- (labels);
-  \draw[ilabflow] (labels) -- (features);
-  \draw[ilabflow] (features) -- (model);
-  \draw[ilabflow] (model) -- (app);
+\begin{tikzpicture}[node distance=0.45cm and 0.35cm]
+  \node[ilabbox,minimum width=1.45cm] (z1) at (0,0.62) {zone 1};
+  \node[ilabbox,minimum width=1.45cm] (z5) at (0,0) {zone 5};
+  \node[ilabbox,minimum width=1.45cm] (z15) at (0,-0.62) {zone 15};
+  \node[ilabbox,right=1.20cm of z5,minimum width=2.35cm] (windows) {per-zone\\lookback windows};
+  \node[ilabbox,right=of windows,minimum width=2.10cm,fill=ILABOrange!12,draw=ILABOrange] (cnn) {shared\\1D CNN};
+  \node[ilabbox,right=of cnn,minimum width=2.10cm] (prob) {per-zone\\probability};
+  \draw[ilabthinflow] (z1) -- (windows);
+  \draw[ilabthinflow] (z5) -- (windows);
+  \draw[ilabthinflow] (z15) -- (windows);
+  \draw[ilabflow] (windows) -- (cnn);
+  \draw[ilabflow] (cnn) -- (prob);
 \end{tikzpicture}
 }
 \tightsep
-\begin{block}{Contract boundary}
-\small AIR1 model inputs are AIR-1, SEN55, missing indicators, and time features. Power, mmWave, and \code{zone_id} are excluded from the feature input.
+\begin{block}{Model shape}
+\small The model learns shared temporal patterns across zones while split policy prevents timestamp leakage across partitions.
 \end{block}
 \end{columns}
 \end{frame}
 
-\begin{frame}[shrink=2]{Technical Architecture As Method Evidence}
-\centering
-\resizebox{0.98\textwidth}{!}{%
-\begin{tikzpicture}[
-  node distance=0.70cm and 0.82cm,
-  laneTitle/.style={font=\bfseries\scriptsize,text=ILABNavy},
-  box/.style={ilabbox,minimum width=2.42cm}
-]
-  \node[laneTitle] at (0,2.0) {Sensors/views};
-  \node[laneTitle] at (3.15,2.0) {Long-form data};
-  \node[laneTitle] at (6.48,2.0) {Serving/training};
-  \node[laneTitle] at (9.72,2.0) {Readiness};
-
-  \node[box] (views) at (0,0.88) {cam1 + cam2\\zone trackers};
-  \node[box] (env) at (0,-0.72) {AIR-1 +\\SEN55};
-  \node[box] (labels) at (3.15,0.88) {per-zone\\CV table};
-  \node[box] (rows) at (3.15,-0.72) {\code{timestamp}\\+\code{zone_id} rows};
-  \node[box,fill=ILABOrange!12,draw=ILABOrange] (app) at (6.48,0.88) {FastAPI\\all-zones app};
-  \node[box] (trainer) at (6.48,-0.72) {shared model\\trainer};
-  \node[box] (health) at (9.72,0.88) {\code{/api/health}\\camera freshness};
-  \node[box] (pointer) at (9.72,-0.72) {production\\pointer gate};
-
-  \draw[ilabflow] (views) -- (labels);
-  \draw[ilabflow] (env) -- (rows);
-  \draw[ilabflow] (labels) -- (rows);
-  \draw[ilabflow] (rows) -- (app);
-  \draw[ilabflow] (rows) -- (trainer);
-  \draw[ilabflow] (trainer) -- (app);
-  \draw[ilabflow] (app) -- (health);
-  \draw[ilabflow] (trainer) -- (pointer);
-  \draw[ilabthinflow] (pointer) -- (app);
-\end{tikzpicture}
-}
+\begin{frame}[shrink=5]{1D CNN Architecture}
+\scriptsize
+\renewcommand{\arraystretch}{1.12}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Stage} & \textbf{Source behavior} \\
+\midrule
+Input & AIR-1, SEN55, missing indicators, and time channels over a selected lookback. \\
+Conv blocks & 2 or 3 \code{Conv1d} blocks; base channels grow by block and cap at 256. \\
+Kernel choices & First and late kernels are searched independently over compact odd sizes. \\
+Normalization & Optional batch normalization after convolution. \\
+Activation & Search over ReLU, GELU, and SiLU. \\
+Pooling & Max-pooling after block 2 or after each late block. \\
+Global pooling & Adaptive average or max pooling to one temporal summary. \\
+Classifier & Dense layer, activation, dropout, final single-logit output. \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
 \tightsep
 \begin{center}
-\chip{Null-preserving labels}
+\chip{TunableZoneOccupancyCNN}
 \hspace{0.45em}
-\chip{Shared model}
+\chip{Shared weights}
 \hspace{0.45em}
-\chip{Per-zone dashboard}
-\hspace{0.45em}
-\chip{Readiness before inference}
+\chip{Binary output}
 \end{center}
 \end{frame}
 
-\begin{frame}[shrink=4]{Labeling And Feature Contract}
+\begin{frame}[shrink=4]{Optuna And Training Loop}
+\begin{columns}[T,onlytextwidth]
+\column{0.50\textwidth}
+\textbf{Search space}
+\begin{itemize}
+  \item Lookback, batch size, learning rate, weight decay.
+  \item Conv block count, channels, kernel sizes.
+  \item Activation, normalization, pooling, global pooling.
+  \item Dense units, dropout, scheduler, patience.
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Training mechanics}
+\begin{itemize}
+  \item Optimizer: AdamW.
+  \item Class imbalance handled with positive weight from train labels.
+  \item Schedulers: none, cosine, or reduce-on-plateau.
+  \item Objective: mean validation PR-AUC across eligible folds.
+  \item Final model trains on all pre-test rows.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{block}{Shared model implication}
+\small AIR1 searches one model configuration for all zones rather than fitting isolated per-zone models.
+\end{block}
+\end{frame}
+
+\begin{frame}[shrink=4]{Split And Coverage Policy}
+\begin{columns}[T,onlytextwidth]
+\column{0.50\textwidth}
+\textbf{Strict path}
+\begin{itemize}
+  \item Latest calendar day is held out as blind test.
+  \item Pre-test dates form one-day rolling validation folds.
+  \item Timestamp groups keep all zones for one timestamp together.
+  \item Valid lookbacks must fit train and validation windows.
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Coverage evidence}
+\begin{itemize}
+  \item Per-zone label coverage is checked.
+  \item Both-class windows are required for meaningful validation.
+  \item Rejected lookbacks and under-covered dates are recorded.
+  \item Bootstrap fallback is first-production recovery only.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{center}
+\chip{Timestamp grouping}
+\hspace{0.45em}
+\chip{Rolling calendar}
+\hspace{0.45em}
+\chip{Per-zone coverage}
+\hspace{0.45em}
+\chip{Both-class windows}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=4]{Validation And Promotion Gates}
 \begin{columns}[T,onlytextwidth]
 \column{0.48\textwidth}
-\textbf{Label contract}
+\textbf{Model evidence}
 \begin{itemize}
-  \item Target: \code{occupied}.
-  \item Key: one row per \code{timestamp + zone_id}.
-  \item Positive rule: per-zone median \code{occupancy_count >= 1}.
-  \item No matching CV label means \code{occupied = null}.
-  \item Table 16 is visible camera context but excluded from model zones.
+  \item Blind-test PR-AUC and mean CV PR-AUC thresholds.
+  \item Brier score and log-loss ceilings.
+  \item Positive windows, positive buckets, and positive events.
+  \item Progressive strict-fold maturity as production matures.
 \end{itemize}
 
 \column{0.48\textwidth}
-\textbf{Feature contract}
+\textbf{Software evidence}
 \begin{itemize}
-  \item Valid model zones are 1--15.
-  \item Inputs: AIR-1 environment, SEN55 fields, missing indicators, and time cycles.
-  \item \code{zone_id} supports grouping, windows, audits, splits, and display only.
-  \item No power or mmWave features are imported from Zone 5.
+  \item Smoke loading rejects incompatible artifacts.
+  \item Same-window non-regression applies when production is comparable.
+  \item Promotion writes the production pointer atomically.
+  \item Promotion failure does not stop collection.
 \end{itemize}
 \end{columns}
 \end{frame}
 
-\begin{frame}[shrink=3]{Evaluation Design And Validation Gates}
+\begin{frame}[shrink=4]{Contract Tests And Smoke Checks}
 \begin{columns}[T,onlytextwidth]
 \column{0.48\textwidth}
-\textbf{Offline validation}
+\textbf{High-value tests}
 \begin{itemize}
-  \item Per-zone label coverage and both-class window checks.
-  \item Rolling-calendar splits with hidden blind-test evidence.
-  \item Contract tests for feature columns, masks, labels, and runtime payloads.
-  \item Smoke checks reject wrong target columns and incompatible artifacts.
+  \item Model features exclude \code{zone_id}, power, and mmWave.
+  \item One timestamp emits all 15 valid zone rows.
+  \item Per-zone labels join on \code{timestamp + zone_id}.
+  \item Table 16 is excluded and unlabeled zones stay null.
 \end{itemize}
 
 \column{0.48\textwidth}
-\textbf{Runtime validation}
+\textbf{Runtime checks}
 \begin{itemize}
-  \item \code{/api/health} reports readiness, history size, camera statuses, and latest errors.
-  \item Camera freshness remains visible even when inference waits for a production pointer.
-  \item Missing production readiness is a gated state, not a dashboard outage.
-  \item Null label coverage is audited instead of converted to vacancy.
+  \item Smoke loading validates model and feature compatibility.
+  \item Web-app checks cover health and route behavior.
+  \item Camera freshness remains observable without active inference.
+  \item Production pointer state is reported rather than hidden.
 \end{itemize}
 \end{columns}
+\tightsep
+\begin{block}{Review implication}
+\small The all-zones contract is enforced both in dataset code and in tests, not just in documentation.
+\end{block}
+\end{frame}
+
+\begin{frame}[shrink=4]{FastAPI Endpoint Surface}
+\scriptsize
+\renewcommand{\arraystretch}{1.1}
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Endpoint} & \textbf{Purpose} \\
+\midrule
+\code{/} & Static all-zones dashboard shell. \\
+\code{/api/health} & Readiness, data-source, pointer state, history size, camera config, camera status, and latest error. \\
+\code{/api/current} & Latest all-zones event, or 503 when no history exists. \\
+\code{/api/history?n=} & Bounded recent event history. \\
+\code{/api/stream} & Server-sent events for live dashboard updates. \\
+\code{/api/video/{camera_id}.mjpg} & Camera-specific MJPEG stream for cam1 or cam2. \\
+\code{/api/video.mjpg} & Compatibility MJPEG route using the primary camera stream. \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+\tightsep
+\begin{block}{Interface constraint}
+\small The presentation change does not alter public API, schema, services, filenames, or Make targets.
+\end{block}
+\end{frame}
+
+\begin{frame}[shrink=4]{Health Payload Semantics}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{Health can prove}
+\begin{itemize}
+  \item The app process is responsive.
+  \item Camera grabbers are configured and report freshness.
+  \item History size and current readiness are visible.
+  \item The latest error explains blockers such as pointer absence.
+\end{itemize}
+
+\column{0.48\textwidth}
+\textbf{Health does not prove}
+\begin{itemize}
+  \item A production model has already been promoted.
+  \item Every zone has current labels.
+  \item Sensor/API features are complete.
+  \item A candidate model passed promotion.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{center}
+\parbox{0.82\textwidth}{\centering\small The dashboard is allowed to be operationally useful before production inference is ready, as long as readiness is explicit.}
+\end{center}
 \end{frame}
 
 \begin{frame}[shrink=4]{Dashboard Usefulness While Inference Is Gated}
@@ -209,17 +623,17 @@ model-readiness gates are evaluated together.
 \column{0.48\textwidth}
 \textbf{Useful before promotion}
 \begin{itemize}
-  \item Two MJPEG feeds can show whether cam1 and cam2 are fresh.
+  \item cam1 and cam2 MJPEG feeds show view freshness.
   \item Per-zone CV truth can be displayed independently from model probability.
-  \item The health payload explains readiness blockers such as a missing production pointer.
+  \item Health payload reports missing production pointer or source blockers.
 \end{itemize}
 
 \column{0.48\textwidth}
 \begin{block}{Applied-research implication}
-\small
-AIR1 separates observation quality from model readiness. A dashboard can support
-data collection and diagnosis before the first promotable all-zones model
-exists, as long as it does not present missing inference as validated occupancy.
+\small AIR1 separates observation quality from model readiness. A dashboard can
+support data collection and diagnosis before the first promotable all-zones
+model exists, as long as it does not present missing inference as validated
+occupancy.
 \end{block}
 \tightsep
 \chip{Collect}
@@ -232,13 +646,37 @@ exists, as long as it does not present missing inference as validated occupancy.
 \end{columns}
 \end{frame}
 
+\begin{frame}[shrink=4]{Deployment And Operations}
+\begin{columns}[T,onlytextwidth]
+\column{0.50\textwidth}
+\textbf{Persistent runtime}
+\begin{itemize}
+  \item User-systemd services own camera loops, aggregator, SEN55 collector, live collector, app, and trainer timer.
+  \item Generated data, logs, and model runs remain package-local and untracked.
+  \item The trainer lock prevents overlapping full fits.
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Operational readiness}
+\begin{itemize}
+  \item Enable trainer timer only after collection and label coverage are mature enough.
+  \item Check pointers, status JSON, service state, and health routes before declaring readiness.
+  \item Keep Zone 5 deployment detail out of AIR1 claims.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{block}{Manual-first rule}
+\small AIR1 automation should follow a successful proof run; scheduled training should not obscure whether coverage, split, or model gates are the real blocker.
+\end{block}
+\end{frame}
+
 \begin{frame}[shrink=4]{Limitations And Threats To Validity}
 \begin{columns}[T,onlytextwidth]
 \column{0.49\textwidth}
 \textbf{Data and label threats}
 \begin{itemize}
-  \item Camera occlusion and zone-mask coverage can vary by table and view.
-  \item Missing camera coverage creates null labels and reduces usable validation evidence.
+  \item Camera occlusion and mask coverage vary by zone and view.
+  \item Missing camera coverage creates null labels and reduces usable evidence.
   \item Table 16 exclusion limits model scope to zones 1--15.
   \item Calendar-window maturity can block strict rolling validation.
 \end{itemize}
@@ -246,43 +684,55 @@ exists, as long as it does not present missing inference as validated occupancy.
 \column{0.47\textwidth}
 \textbf{Operational threats}
 \begin{itemize}
-  \item Production pointer absence means inference is not ready, even if collection is alive.
-  \item Sensor/API availability can affect environmental feature freshness.
+  \item Production pointer absence means inference is not ready even when collection is alive.
+  \item Sensor/API availability affects environmental feature freshness.
   \item Training quality depends on enough occupied and unoccupied windows per split.
-  \item This deck intentionally excludes Zone 5 deployment claims from AIR1 scope.
+  \item Shared modeling may hide zone-specific failure modes without per-zone audits.
 \end{itemize}
 \end{columns}
 \end{frame}
 
-\begin{frame}[shrink=4]{Research Roadmap And Source Anchors}
+\begin{frame}[shrink=4]{Roadmap}
 \begin{columns}[T,onlytextwidth]
-\column{0.42\textwidth}
-\textbf{Roadmap}
+\column{0.50\textwidth}
+\textbf{Near-term hardening}
 \begin{itemize}
   \item Mature per-zone label coverage before treating all-zones inference as production-ready.
   \item Promote only after strict-window evidence, smoke checks, and contract tests pass.
-  \item Keep camera freshness, null label rates, and production pointer state visible in operations.
+  \item Keep camera freshness, null label rates, and production pointer state visible.
 \end{itemize}
 
-\column{0.54\textwidth}
-\tiny
-\renewcommand{\arraystretch}{0.96}
+\column{0.46\textwidth}
+\textbf{Research extensions}
+\begin{itemize}
+  \item Add per-zone reliability summaries for reviewers and operators.
+  \item Compare shared-model errors across camera coverage groups.
+  \item Extend contract only after a source-grounded reason to include new fields.
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}[shrink=5]{Source Anchors}
+\scriptsize
+\renewcommand{\arraystretch}{1.05}
 \begin{tabularx}{\textwidth}{@{}lX@{}}
 \toprule
 \textbf{Topic} & \textbf{Primary source paths} \\
 \midrule
-Pipeline contract & \pathref{air1/.../PIPELINE.md} \\
-Feature columns & \pathref{air1/.../feature_contract.py} \\
-CV labels and masks & \pathref{air1/.../rtsp_zone_tracker.py}, \pathref{air1/.../masks/} \\
-Training/promotion & \pathref{air1/.../retrain_once.py}, \pathref{air1/.../promote_model.py} \\
-Runtime readiness & \pathref{air1/.../web_app/}, \pathref{air1/.../tests/} \\
+Pipeline map & \pathref{PIPELINE.md} \\
+Feature and target contract & \pathref{air1_all_zones/feature_contract.py} \\
+CV labels and masks & \pathref{rtsp_zone_tracker.py}, \pathref{masks/} \\
+Joined training table & \pathref{air1_all_zones/build_cv_training_data.py} \\
+Model and training & \pathref{air1_all_zones/training.py} \\
+Promotion & \pathref{air1_all_zones/promote_model.py} \\
+Runtime readiness & \pathref{web_app/main.py} \\
+Contract tests & \pathref{tests/test_all_zones_contract.py} \\
 \bottomrule
 \end{tabularx}
 \renewcommand{\arraystretch}{1.0}
-\end{columns}
 \tightsep
 \begin{center}
-\parbox{0.82\textwidth}{\centering\textbf{Closing point: AIR1 is an all-zones, two-camera occupancy study whose null labels and readiness gates are part of the method.}}
+\parbox{0.84\textwidth}{\centering\textbf{Closing point: AIR1 is an all-zones, two-camera occupancy study whose null labels and readiness gates are part of the method.}}
 \end{center}
 \end{frame}
 

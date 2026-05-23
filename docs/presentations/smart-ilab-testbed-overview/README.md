@@ -1,6 +1,6 @@
 # Smart i-LAB Technical Presentations
 
-This directory contains two focused Metropolis Beamer applied-research decks
+This directory contains two expanded Metropolis Beamer technical-review decks
 for the `pctiope/smart-i-lab-testbed` repository. Both use the shared
 navy/orange style in `smart-ilab-presentation-shared.tex` and repo-grounded
 visuals without embedding runtime secrets, generated logs, or generated model
@@ -17,14 +17,18 @@ artifacts.
 
 ## Structure
 
-- Zone 5 deck: problem motivation, research gap, research questions,
-  multimodal single-zone method, architecture evidence, CV label and
-  missingness-decoupled feature contract, mmWave recency, validation gates,
-  operational validity, limitations, roadmap, and sources.
-- AIR1 deck: problem motivation, research gap, research questions, all-zones
-  method, two-camera architecture evidence, per-zone label and long-form
-  feature contract, validation gates, readiness gating, limitations, roadmap,
-  and sources.
+- Zone 5 deck: technical-review scope, problem framing, service ownership,
+  package structure, runtime flow, person counter, CV labels, sensor
+  acquisition, live collector, feature contract, mmWave recency, rolling
+  windows, 1D CNN, Optuna training, validation, promotion, FastAPI endpoints,
+  health/readiness, reproducibility boundaries, limitations, roadmap, and
+  sources.
+- AIR1 deck: technical-review scope, problem framing, service ownership,
+  two-camera coverage, per-zone MQTT labels, long-form feature contract,
+  AIR1-vs-Zone-5 contrast, production-pointer readiness, shared rolling
+  windows, 1D CNN, Optuna training, split/coverage policy, validation,
+  promotion, contract tests, FastAPI endpoints, health/readiness, operations,
+  limitations, roadmap, and sources.
 
 ## Build
 
