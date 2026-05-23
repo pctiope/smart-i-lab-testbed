@@ -30,7 +30,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: zone5-model-delivery
+  group: zone5-production
   cancel-in-progress: false
 
 jobs:

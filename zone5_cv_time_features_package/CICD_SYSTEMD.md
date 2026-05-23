@@ -7,15 +7,26 @@ user-level systemd services.
 Use this path when the server should run the existing shell and Python commands
 directly instead of Docker Compose.
 
+In the combined `smart-i-lab-testbed` repo, production source deploy is handled
+by `.github/workflows/zone5-systemd-source-deploy.yml`. Docker Compose remains
+the staging deploy path on the separate Compose branch. Model delivery and
+training stay in their own production workflows, so a source deploy never starts
+or restarts `zone5-trainer.service`.
+
 The systemd services are:
 
 - `zone5-person-counter.service`
 - `zone5-mqtt-aggregator.service`
 - `zone5-sen55-collector.service`
 - `zone5-live-collector.service`
+- `zone5-live-app.service`
+- `zone5-vite-frontend.service`
 - `zone5-trainer.timer`
 - `zone5-trainer.service`
-- `zone5-live-app.service`
+
+The source deploy workflow restarts only the six live services. It keeps
+`zone5-trainer.timer` disabled and refuses to deploy while
+`zone5-trainer.service` is active or activating.
 
 Runtime state stays on the server in `data/`, `model/`, `logs/`,
 `.python-packages/`, and `web_app/.env`. CI should test code; it should not
@@ -146,8 +157,9 @@ systemctl --user enable --now zone5-person-counter.service
 systemctl --user enable --now zone5-mqtt-aggregator.service
 systemctl --user enable --now zone5-sen55-collector.service
 systemctl --user enable --now zone5-live-collector.service
-systemctl --user enable --now zone5-trainer.timer
 systemctl --user enable --now zone5-live-app.service
+systemctl --user enable --now zone5-vite-frontend.service
+systemctl --user disable --now zone5-trainer.timer
 ```
 
 Check the app once before automating deploys:
@@ -207,6 +219,59 @@ runtime files.
 
 ## 4. Add GitHub Actions Deploy
 
+The current repository already has a production source deploy workflow:
+
+```text
+.github/workflows/zone5-systemd-source-deploy.yml
+```
+
+It runs on manual dispatch and on relevant `main` pushes under
+`zone5_cv_time_features_package/`, excluding docs-only, `model/`, `data/`,
+`logs/`, and `model_registry/` metadata-only changes. Validation runs on a
+GitHub-hosted Ubuntu runner:
+
+```bash
+python -m compileall zone5 web_app ci smoke_test.py
+PYTHONPATH=. python tests/test_cv_ground_truth.py
+npm ci && npm run build
+systemd-analyze verify systemd/user/*.service systemd/user/*.timer
+docker compose config --quiet
+docker compose build
+```
+
+Deployment runs on the self-hosted runner labeled
+`self-hosted`, `linux`, `x64`, `zone5`, and `smart-ilab`. The helper script is:
+
+```text
+ci/deploy_zone5_systemd_source.sh
+```
+
+By default it deploys to:
+
+```text
+$HOME/smart-i-lab-testbed
+```
+
+The helper refuses to run on a dirty production checkout, fetches `origin/main`,
+fast-forwards to the workflow SHA, updates `.python-packages/` only when
+`requirements.txt` changed or the target directory is missing, runs `npm ci`
+only when frontend dependencies are missing or changed, rebuilds the Vite app
+only when frontend files changed or `dist/` is missing, installs changed user
+units, disables `zone5-trainer.timer`, restarts only live services, and checks
+production backend/frontend health.
+
+The source deploy, retrain, and model-delivery workflows all use the shared
+`zone5-production` concurrency group so production mutations do not overlap.
+After the first manual source deploy, verify the runner, staging stack, and
+production endpoints from the production host:
+
+```bash
+bash zone5_cv_time_features_package/ci/check_zone5_cicd_health.sh
+```
+
+The example below is a generic SSH deploy pattern for a standalone copy of this
+package. The combined repo should use the self-hosted-runner workflow above.
+
 Add these repository secrets in GitHub:
 
 ```text
@@ -265,8 +330,9 @@ jobs:
           systemctl --user restart zone5-mqtt-aggregator.service
           systemctl --user restart zone5-sen55-collector.service
           systemctl --user restart zone5-live-collector.service
-          systemctl --user restart zone5-trainer.timer
           systemctl --user restart zone5-live-app.service
+          systemctl --user restart zone5-vite-frontend.service
+          systemctl --user disable --now zone5-trainer.timer
           systemctl --user --no-pager --failed
           curl -fsS http://127.0.0.1:8000/api/health || true
           EOF
@@ -332,8 +398,9 @@ deploy_systemd:
       systemctl --user restart zone5-mqtt-aggregator.service
       systemctl --user restart zone5-sen55-collector.service
       systemctl --user restart zone5-live-collector.service
-      systemctl --user restart zone5-trainer.timer
       systemctl --user restart zone5-live-app.service
+      systemctl --user restart zone5-vite-frontend.service
+      systemctl --user disable --now zone5-trainer.timer
       systemctl --user --no-pager --failed
       curl -fsS http://127.0.0.1:8000/api/health || true
       EOF
@@ -365,8 +432,10 @@ PYTHONPATH="$PWD/.python-packages:$PWD" python3 -m zone5.promote_model
 PYTHONPATH="$PWD/.python-packages:$PWD" python3 smoke_test.py
 ```
 
-The deployed server should normally use `zone5-trainer.timer` for hourly
-retraining and promotion. Keep inline collector retraining disabled with
+Production retraining is owned by `.github/workflows/zone5-production-retrain.yml`
+after the manual proof run succeeds and `ZONE5_ENABLE_SCHEDULED_RETRAIN=true`
+is set. Keep `zone5-trainer.timer` disabled so GitHub and systemd do not both
+launch retraining, and keep inline collector retraining disabled with
 `RETRAIN_AFTER_SNAPSHOT=0` so training cannot block live appends.
 
 ## 7. Verify And Roll Back
@@ -381,6 +450,7 @@ systemctl --user status zone5-live-collector.service
 systemctl --user status zone5-trainer.timer
 systemctl --user status zone5-trainer.service
 systemctl --user status zone5-live-app.service
+systemctl --user status zone5-vite-frontend.service
 tail -n 100 ~/zone5_cv_time_features_package/logs/live_app.log
 tail -n 100 ~/zone5_cv_time_features_package/logs/live_collector.log
 tail -n 100 ~/zone5_cv_time_features_package/logs/zone5_trainer.log
@@ -400,8 +470,9 @@ systemctl --user restart zone5-person-counter.service
 systemctl --user restart zone5-mqtt-aggregator.service
 systemctl --user restart zone5-sen55-collector.service
 systemctl --user restart zone5-live-collector.service
-systemctl --user restart zone5-trainer.timer
 systemctl --user restart zone5-live-app.service
+systemctl --user restart zone5-vite-frontend.service
+systemctl --user disable --now zone5-trainer.timer
 ```
 
 Return to normal tracking after rollback testing:
@@ -416,6 +487,7 @@ systemctl --user restart zone5-person-counter.service
 systemctl --user restart zone5-mqtt-aggregator.service
 systemctl --user restart zone5-sen55-collector.service
 systemctl --user restart zone5-live-collector.service
-systemctl --user restart zone5-trainer.timer
 systemctl --user restart zone5-live-app.service
+systemctl --user restart zone5-vite-frontend.service
+systemctl --user disable --now zone5-trainer.timer
 ```

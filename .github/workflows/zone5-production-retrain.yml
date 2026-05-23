@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: zone5-production-retrain
+  group: zone5-production
   cancel-in-progress: false
 
 jobs:
