@@ -4,22 +4,18 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/smart-i-lab-testbed/zone5_cv_time_features_package
+WorkingDirectory=%h/smart-i-lab-testbed
 EnvironmentFile=-%h/smart-i-lab-testbed/zone5_cv_time_features_package/web_app/.env
-Environment=DURATION_MIN=120
-Environment=APPEND_EVERY_SEC=10
-Environment=BACKFILL_SEC=120
-Environment=SNAPSHOT_REFRESH_EVERY_HOURS=1
-Environment=RETRAIN_AFTER_SNAPSHOT=0
-Environment=PROMOTE_AFTER_RETRAIN=0
+Environment=BSG_POLL_MINUTES=5
+Environment=SMART_ILAB_DUCKDB_PATH=%h/smart-i-lab-testbed/data/smart_ilab.duckdb
 Environment=PYTHON_BIN=python3
 Environment=PYTHONUNBUFFERED=1
 Environment=OMP_NUM_THREADS=1
 Environment=MKL_NUM_THREADS=1
 Environment=OPENBLAS_NUM_THREADS=1
 Environment=NUMEXPR_NUM_THREADS=1
-Environment=PYTHONPATH=%h/smart-i-lab-testbed/zone5_cv_time_features_package/.python-packages:%h/smart-i-lab-testbed/zone5_cv_time_features_package
-ExecStart=/usr/bin/env bash -lc 'exec bash run_live_collector.sh >> logs/live_collector.log 2>&1'
+Environment=PYTHONPATH=%h/smart-i-lab-testbed/.python-packages:%h/smart-i-lab-testbed:%h/smart-i-lab-testbed/zone5_cv_time_features_package/.python-packages:%h/smart-i-lab-testbed/zone5_cv_time_features_package
+ExecStart=/usr/bin/env bash -lc 'exec bash run_bsg_live_collector.sh >> zone5_cv_time_features_package/logs/live_collector.log 2>&1'
 Restart=always
 RestartSec=10
 

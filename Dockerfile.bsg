@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1
+
+FROM python:3.11-slim-bookworm
+
+ARG PYTORCH_CPU_INDEX_URL=https://download.pytorch.org/whl/cpu
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/workspace:/workspace/zone5_cv_time_features_package \
+    PYTHON_BIN=python3 \
+    MPLCONFIGDIR=/tmp/matplotlib \
+    TORCHINDUCTOR_CACHE_DIR=/tmp/torchinductor
+
+WORKDIR /workspace
+
+COPY requirements.txt /tmp/bsg-requirements.txt
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        libgomp1 \
+    && python -m pip install --upgrade pip \
+    && python -m pip install --index-url "$PYTORCH_CPU_INDEX_URL" torch \
+    && python -m pip install -r /tmp/bsg-requirements.txt \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . .
+COPY docker/bsg-entrypoint.sh /usr/local/bin/bsg-entrypoint
+
+RUN chmod +x /usr/local/bin/bsg-entrypoint \
+    && mkdir -p data logs stage zone5_cv_time_features_package/data zone5_cv_time_features_package/model zone5_cv_time_features_package/logs /tmp/matplotlib /tmp/torchinductor \
+    && ln -s data/smart_ilab.duckdb smart_ilab.duckdb \
+    && chmod 1777 /tmp/matplotlib /tmp/torchinductor
+
+ENTRYPOINT ["bsg-entrypoint"]
+CMD ["python", "api_ingestion.py", "--all", "--poll", "5"]

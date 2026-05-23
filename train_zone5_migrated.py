@@ -15,7 +15,7 @@ LEGACY_ZONE5_PACKAGE_CANDIDATES = (
     ROOT / "Legacy" / "zone5_cv_time_features_package",
     ROOT / "zone5_cv_time_features_package",
 )
-DEFAULT_LIVE_OUTPUT_DIR = ROOT / "model"
+DEFAULT_LIVE_OUTPUT_DIR = ROOT / "zone5_cv_time_features_package" / "model"
 DEFAULT_TEST_OUTPUT_DIR = ROOT / "test_runs" / "zone5_full_train_test"
 
 

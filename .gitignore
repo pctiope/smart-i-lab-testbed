@@ -13,8 +13,18 @@ dist/
 __pycache__/
 *.py[cod]
 *.egg-info/
+.python-packages/
+**/.python-packages/
+**/.test_runtime/
 .venv/
 venv/
+
+# BSG runtime artifacts
+data/
+logs/
+stage/
+test_runs/
+smart_ilab.duckdb
 
 # IDE
 .vscode/

@@ -1,2 +1,3 @@
 SSL-IoT1-REST/oas_ssl_iot1.yaml whitespace=cr-at-eol
 SSL-IoT1-REST/package-lock.json whitespace=cr-at-eol
+zone5_cv_time_features_package/zone5/dataset.py whitespace=cr-at-eol
