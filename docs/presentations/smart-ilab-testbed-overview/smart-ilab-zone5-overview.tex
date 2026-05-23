@@ -3,327 +3,185 @@
 \input{smart-ilab-presentation-shared.tex}
 
 \title{Smart i-LAB Zone 5}
-\subtitle{Technical overview for frontend, CI/CD, ML, and deployment}
+\subtitle{Applied research overview for robust single-zone occupancy estimation}
 \author{pctiope/smart-i-lab-testbed}
 \date{May 2026}
 
 \begin{document}
 
-\decktitleframe{Zone 5 Technical Overview}{Smart i-LAB Zone 5}{Dashboard, API context, model contract,\\CI/CD, deployment, and verification}{../../../Smart-iLab_DigitalTwin/assets/smart_ilab_3d/Smart_I-LAB_floor3d_room_8_44.jpg}
+\decktitleframe{Applied Research Overview}{Smart i-LAB Zone 5}{Robust Desk/Zone 5 occupancy estimation with imperfect live lab sensing}{../../../Smart-iLab_DigitalTwin/assets/smart_ilab_3d/Smart_I-LAB_floor3d_room_8_44.jpg}
 
-\begin{frame}{Objective}
-\begin{columns}[T,onlytextwidth]
-\column{0.45\textwidth}
-\begin{block}{Review question}
-How does the Zone 5 stack move from lab devices and CV labels to a live dashboard,
-model training, staged rollout, and production verification?
-\end{block}
-\tightsep
-\chip{Zone 5 only}
-\hspace{0.4em}
-\chip{Repo-grounded}
-\hspace{0.4em}
-\chip{No runtime secrets}
-
-\column{0.51\textwidth}
-\begin{itemize}
-  \item Keep Digital Twin and IoT1 context only where it explains Zone 5 inputs.
-  \item Show user flow, data flow, and service ownership boundaries.
-  \item Separate staging Compose, production systemd, retraining, and model delivery.
-  \item Explain the Zone 5 label contract, feature contract, and mmWave recency path.
-\end{itemize}
-\end{columns}
-\end{frame}
-
-\sectionframe{01}{Frontend And API Context}
-
-\begin{frame}[shrink=3]{Zone 5 Dashboard}
+\begin{frame}[shrink=4]{Problem Motivation}
 \begin{columns}[T,onlytextwidth]
 \column{0.42\textwidth}
 \centering
 \includegraphics[width=0.92\linewidth,height=0.25\textheight,keepaspectratio]{../../../zone5_cv_time_features_package/web_app_vite/smart-ilab-zone5/src/assets/hero.png}
+\vspace{0.25em}
+
+\includegraphics[width=0.96\linewidth,height=0.18\textheight,keepaspectratio]{../../../zone5_cv_time_features_package/cv_counter/masks/cam1-desk5-mask.png}
 \vspace{0.15em}
 
-{\tiny\textcolor{ILABSteel}{Tracked dashboard visual reference.}\par}
-\vspace{0.35em}
-
-\includegraphics[width=0.96\linewidth,height=0.17\textheight,keepaspectratio]{../../../zone5_cv_time_features_package/cv_counter/masks/cam1-desk5-mask.png}
-\vspace{0.15em}
-
-{\tiny\textcolor{ILABSteel}{Desk 5 ROI mask used by the CV counter.}\par}
+{\tiny\textcolor{ILABSteel}{Tracked dashboard and Desk 5 ROI assets.}\par}
 
 \column{0.54\textwidth}
-\textbf{What the operator sees}
-\begin{itemize}
-  \item Occupancy probability, CV truth, recent history, squared error, and sensor context.
-  \item Annotated MJPEG from the file-backed latest-frame path.
-  \item Split-pane layout with the camera feed beside the readout surface.
-\end{itemize}
+\begin{block}{Research setting}
+Desk/Zone 5 is a live lab zone, not a clean benchmark. Occupancy evidence
+arrives through camera labels, AIR-1 environmental readings, smart-plug power,
+mmWave motion state, SEN55 air-quality readings, and time.
+\end{block}
 \tightsep
-\begin{block}{Backend contract}
+\begin{itemize}
+  \item Streams can be stale, delayed, partial, or absent while the dashboard must stay useful.
+  \item CV labels are a practical proxy for occupancy, but they inherit mask, lighting, and occlusion limits.
+  \item A useful model must expose probability, readiness, and source health without committing runtime secrets or snapshots.
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}[shrink=3]{Research Gap}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{What simple approaches miss}
+\begin{itemize}
+  \item A dashboard can show sensor values without validating an occupancy model.
+  \item A single-sensor rule can look stable while ignoring stale upstream data.
+  \item A model script can optimize metrics while silently learning missingness patterns.
+\end{itemize}
+
+\column{0.48\textwidth}
+\begin{block}{Gap addressed here}
 \small
-\code{/api/health}, \code{/api/current}, \code{/api/history}, \code{/api/stream}, and
-\code{/api/video.mjpg} are preserved so UI changes do not redefine runtime APIs.
+The Zone 5 work treats robust occupancy estimation as a multimodal, operationally
+gated research problem: noisy CV labels, missing sensor values, mmWave recency,
+rolling validation, and live deployment gates must be handled together.
+\end{block}
+\tightsep
+\chip{Multimodal}
+\hspace{0.35em}
+\chip{Missingness-decoupled}
+\hspace{0.35em}
+\chip{Operational gates}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Research Questions}
+\begin{enumerate}
+  \item Can a Zone 5 model combine environmental, power, mmWave, CV, and time features without treating missingness itself as occupancy evidence?
+  \item Can mmWave recency add short-history motion context without target leakage?
+  \item Can deployment and promotion gates keep the live service stable while the model contract evolves?
+\end{enumerate}
+\tightsep
+\begin{center}
+\parbox{0.84\textwidth}{\centering
+\small The deck answers these questions with source-grounded method design, architecture evidence, validation gates, and limitations rather than generated run metrics.}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=4]{System And Method Overview}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{Method}
+\begin{itemize}
+  \item Build a CV-derived \code{zone_occupied} target in 10-second buckets.
+  \item Join AIR-1, power, mmWave, SEN55, and time features into rolling windows.
+  \item Preserve raw sensor values while keeping missingness indicators out of model inputs.
+  \item Add past-only mmWave recency features for short-history motion context.
+  \item Deliver retrained models through staged promotion and live readiness checks.
+\end{itemize}
+
+\column{0.48\textwidth}
+\centering
+\resizebox{0.98\linewidth}{!}{%
+\begin{tikzpicture}[node distance=0.62cm and 0.72cm]
+  \node[ilabbox,minimum width=2.25cm] (sensors) {AIR-1, power,\\mmWave, SEN55};
+  \node[ilabbox,below=of sensors,minimum width=2.25cm] (cv) {Desk 5\\CV labels};
+  \node[ilabbox,right=of sensors,yshift=-0.44cm,minimum width=2.45cm] (table) {10-second\\training rows};
+  \node[ilabbox,right=of table,minimum width=2.45cm] (windows) {rolling-window\\model inputs};
+  \node[ilabbox,right=of windows,minimum width=2.45cm,fill=ILABOrange!12,draw=ILABOrange] (model) {Zone 5\\probability model};
+  \node[ilabbox,right=of model,minimum width=2.35cm] (app) {dashboard +\\\code{/api/health}};
+  \draw[ilabflow] (sensors) -- (table);
+  \draw[ilabflow] (cv) -- (table);
+  \draw[ilabflow] (table) -- (windows);
+  \draw[ilabflow] (windows) -- (model);
+  \draw[ilabflow] (model) -- (app);
+\end{tikzpicture}
+}
+\tightsep
+\begin{block}{Research principle}
+\small Model evidence and operational readiness are separated: collection can continue, the dashboard can report health, and promotion can fail without redefining the live API.
 \end{block}
 \end{columns}
 \end{frame}
 
-\begin{frame}[shrink=4]{Shared API Context}
-\begin{columns}[T,onlytextwidth]
-\column{0.44\textwidth}
-\textbf{Purpose}
-\begin{itemize}
-  \item IoT1 REST API is the integration layer for AIR-1 sensor history and device metadata.
-  \item Zone 5 consumes API data through package-local collectors and live data sources.
-  \item Runtime clients send \code{x-api-key}; populated values are kept outside source.
-\end{itemize}
-
-\column{0.52\textwidth}
-\centering
-\resizebox{0.94\linewidth}{!}{%
-\begin{tikzpicture}[node distance=0.72cm and 0.92cm]
-  \node[ilabbox,minimum width=2.55cm] (devices) {AIR-1, plug,\\mmWave, SEN55};
-  \node[ilabbox,right=of devices,minimum width=2.65cm,fill=ILABOrange!10,draw=ILABOrange] (api) {IoT1 REST API};
-  \node[ilabstore,right=of api,minimum width=2.5cm] (db) {TimescaleDB\\history};
-  \node[ilabbox,below=of api,minimum width=2.65cm] (z5) {Zone 5\\collectors + app};
-  \draw[ilabflow] (devices) -- (api);
-  \draw[ilabflow] (api) -- (db);
-  \draw[ilabflow] (api) -- (z5);
-  \draw[ilabthinflow] (db.south) to[bend left=18] (z5.east);
-\end{tikzpicture}
-}
-\end{columns}
-\end{frame}
-
-\sectionframe{02}{Zone 5 Architecture}
-
-\begin{frame}{Zone 5 User And Data Flow}
+\begin{frame}[shrink=2]{Technical Architecture As Method Evidence}
 \centering
 \resizebox{0.98\textwidth}{!}{%
 \begin{tikzpicture}[
-  node distance=0.70cm and 0.85cm,
+  node distance=0.70cm and 0.82cm,
   laneTitle/.style={font=\bfseries\scriptsize,text=ILABNavy},
-  box/.style={ilabbox,minimum width=2.45cm}
+  box/.style={ilabbox,minimum width=2.42cm}
 ]
-  \node[laneTitle] at (0,2.0) {Users};
-  \node[laneTitle] at (3.05,2.0) {Dashboard};
-  \node[laneTitle] at (6.30,2.0) {Runtime};
-  \node[laneTitle] at (9.70,2.0) {Data/ML};
+  \node[laneTitle] at (0,2.0) {Live lab};
+  \node[laneTitle] at (3.15,2.0) {Collection};
+  \node[laneTitle] at (6.48,2.0) {Training/serving};
+  \node[laneTitle] at (9.72,2.0) {Research checks};
 
-  \node[box] (operator) at (0,0.80) {Zone 5\\operator};
-  \node[box] (researcher) at (0,-0.72) {researcher\\review};
-  \node[box] (vite) at (3.05,0.10) {Vite\\frontend};
-  \node[box,fill=ILABOrange!12,draw=ILABOrange] (fastapi) at (6.30,0.10) {FastAPI\\model app};
-  \node[box] (frame) at (6.30,-1.32) {file-backed\\MJPEG};
-  \node[ilabstore,minimum width=2.55cm] (features) at (9.70,0.85) {AIR-1 + SEN55\\feature rows};
-  \node[box] (labels) at (9.70,-0.35) {Desk 5\\CV labels};
-  \node[box] (models) at (9.70,-1.55) {production\\model pointer};
+  \node[box] (devices) at (0,0.88) {AIR-1, plug,\\MSR-2, SEN55};
+  \node[box] (camera) at (0,-0.72) {Desk 5\\masked camera};
+  \node[box] (collector) at (3.15,0.88) {live collector\\rolling CSV};
+  \node[box] (aggregator) at (3.15,-0.72) {10-second\\CV buckets};
+  \node[box,fill=ILABOrange!12,draw=ILABOrange] (app) at (6.48,0.88) {FastAPI\\inference loop};
+  \node[box] (trainer) at (6.48,-0.72) {trainer +\\promoter};
+  \node[box] (health) at (9.72,0.88) {\code{/api/health}\\readiness};
+  \node[box] (splits) at (9.72,-0.72) {blind test +\\rolling CV};
 
-  \draw[ilabflow] (operator) -- (vite);
-  \draw[ilabthinflow] (researcher) -- (vite);
-  \draw[ilabflow] (vite) -- (fastapi);
-  \draw[ilabflow] (fastapi) -- (features);
-  \draw[ilabflow] (fastapi) -- (labels);
-  \draw[ilabflow] (models) -- (fastapi);
-  \draw[ilabthinflow] (frame) -- (vite);
-\end{tikzpicture}
-}
-\end{frame}
-
-\begin{frame}{Zone 5 Runtime Architecture}
-\centering
-\resizebox{0.98\textwidth}{!}{%
-\begin{tikzpicture}[node distance=0.66cm and 0.78cm]
-  \node[ilabbox,minimum width=2.30cm] (air1) {AIR-1\\zone sensors};
-  \node[ilabbox,below=of air1,minimum width=2.30cm] (plug) {smart plug\\\code{power_s5}};
-  \node[ilabbox,below=of plug,minimum width=2.30cm] (mmw) {MSR-2\\\code{mmwave_s5}};
-  \node[ilabbox,right=of plug,minimum width=2.35cm] (api) {IoT1 REST\\source};
-  \node[ilabbox,right=of api,minimum width=2.60cm] (collector) {live collector\\CSV rows};
-  \node[ilabbox,above right=0.26cm and 0.82cm of collector,minimum width=2.55cm] (app) {FastAPI app\\inference loop};
-  \node[ilabbox,below right=0.26cm and 0.82cm of collector,minimum width=2.55cm] (cv) {person counter\\Desk 5 mask};
-  \node[ilabbox,right=of app,minimum width=2.60cm] (ui) {Zone 5\\dashboard};
-  \node[ilabbox,right=of cv,minimum width=2.60cm] (model) {promoted model\\pointer};
-
-  \draw[ilabflow] (air1) -- (api);
-  \draw[ilabflow] (plug) -- (api);
-  \draw[ilabflow] (mmw) -- (api);
-  \draw[ilabflow] (api) -- (collector);
+  \draw[ilabflow] (devices) -- (collector);
+  \draw[ilabflow] (camera) -- (aggregator);
   \draw[ilabflow] (collector) -- (app);
-  \draw[ilabflow] (cv) -- (app);
-  \draw[ilabflow] (model) -- (app);
-  \draw[ilabflow] (app) -- (ui);
+  \draw[ilabflow] (aggregator) -- (app);
+  \draw[ilabflow] (collector) -- (trainer);
+  \draw[ilabflow] (aggregator) -- (trainer);
+  \draw[ilabflow] (trainer) -- (app);
+  \draw[ilabflow] (app) -- (health);
+  \draw[ilabflow] (trainer) -- (splits);
 \end{tikzpicture}
 }
 \tightsep
 \begin{center}
-\chip{AIR-1 sensors}
-\hspace{0.5em}
-\chip{Power}
-\hspace{0.5em}
-\chip{mmWave}
-\hspace{0.5em}
-\chip{CV labels}
-\hspace{0.5em}
-\chip{Model delivery}
+\chip{Preserved API surface}
+\hspace{0.45em}
+\chip{Stable training snapshot}
+\hspace{0.45em}
+\chip{Promotion before pointer flip}
+\hspace{0.45em}
+\chip{Runtime state off-source}
 \end{center}
 \end{frame}
 
-\sectionframe{03}{CI/CD And Model Delivery}
-
-\begin{frame}[shrink=3]{GitHub Workflow Topology}
-\centering
-\resizebox{0.84\textwidth}{!}{%
-\begin{tikzpicture}[x=1cm,y=1cm]
-  \node[ilablane,anchor=north west,minimum width=10.9cm,minimum height=1.62cm] at (-3.65,1.45) {};
-  \node[ilablane,anchor=north west,minimum width=10.9cm,minimum height=1.62cm] at (-3.65,-0.44) {};
-  \node[anchor=west,font=\bfseries\scriptsize,text=ILABNavy] at (-3.38,1.16) {\code{main}};
-  \node[anchor=west,font=\bfseries\scriptsize,text=ILABNavy] at (-3.38,-0.68) {\code{cicd/zone5-compose}};
-
-  \node[ilabbox,minimum width=2.30cm] (audit) at (-5.35,0.30) {repo checks\\\code{audit.yml}};
-  \node[ilabbox,minimum width=2.50cm] (source) at (-2.08,0.48) {source deploy\\user-systemd};
-  \node[ilabbox,minimum width=2.50cm] (retrain) at (1.05,0.48) {production retrain\\manual gate};
-  \node[ilabbox,minimum width=2.50cm] (model) at (4.18,0.48) {model delivery\\pointer flip};
-  \node[ilabbox,minimum width=2.85cm] (compose) at (-1.92,-1.38) {staging Compose\\ports 8005 / 8016};
-  \node[ilabbox,minimum width=2.65cm] (stagecheck) at (1.52,-1.38) {config + build\\deploy check};
-
-  \draw[ilabflow] (audit.east) to[out=22,in=180] (source.west);
-  \draw[ilabflow] (audit.east) to[out=-25,in=180] (compose.west);
-  \draw[ilabflow] (source) -- (retrain);
-  \draw[ilabflow] (retrain) -- (model);
-  \draw[ilabflow] (compose) -- (stagecheck);
-\end{tikzpicture}
-}
-\vspace{-0.20em}
-\scriptsize
-\renewcommand{\arraystretch}{0.92}
-\begin{tabularx}{0.98\textwidth}{@{}lX@{}}
-\toprule
-\textbf{Workflow} & \textbf{Ownership} \\
-\midrule
-\code{zone5-systemd-source-deploy.yml} & Production source deploy; restarts live services only. \\
-\code{zone5-compose-ci-cd.yml} & Staging Compose path; self-hosted deploy to separate ports. \\
-\code{zone5-production-retrain.yml} & Starts the trainer and packages a promoted model only after gating. \\
-\code{zone5-model-delivery.yml} & Installs a vetted model artifact and updates the production pointer. \\
-\bottomrule
-\end{tabularx}
-\renewcommand{\arraystretch}{1.0}
-\end{frame}
-
-\begin{frame}{Staging Compose Vs. Production systemd}
+\begin{frame}[shrink=4]{Labeling And Feature Contract}
 \begin{columns}[T,onlytextwidth]
 \column{0.48\textwidth}
-\begin{block}{Production}
+\textbf{Label contract}
 \begin{itemize}
-  \item Branch: \code{main}
-  \item Runtime: user-level systemd
-  \item Ports: backend \code{8000}, Vite \code{8015}
-  \item Source deploy refuses active trainer collisions.
-\end{itemize}
-\end{block}
-
-\column{0.48\textwidth}
-\begin{block}{Staging}
-\begin{itemize}
-  \item Branch: \code{cicd/zone5-compose}
-  \item Runtime: Docker Compose
-  \item Ports: backend \code{8005}, Vite \code{8016}
-  \item Copies env and model pointer from production when needed.
-\end{itemize}
-\end{block}
-\end{columns}
-\tightsep
-\begin{center}
-\large\textbf{Source deploy, staging deploy, training, and model delivery stay separate.}
-\end{center}
-\end{frame}
-
-\begin{frame}{Retrain And Model Delivery}
-\centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[node distance=0.56cm and 0.62cm]
-  \node[ilabbox,minimum width=2.45cm,minimum height=0.95cm] (timer) {manual / gated\\trigger};
-  \node[ilabbox,right=of timer,minimum width=2.45cm,minimum height=0.95cm] (service) {\code{zone5-trainer}\\oneshot};
-  \node[ilabbox,right=of service,minimum width=2.45cm,minimum height=0.95cm] (snapshot) {stable\\CSV snapshot};
-  \node[ilabbox,right=of snapshot,minimum width=2.45cm,minimum height=0.95cm] (train) {train + validate\\checks};
-  \node[ilabbox,right=of train,minimum width=2.45cm,minimum height=0.95cm] (artifact) {model\\artifact};
-  \node[ilabbox,right=of artifact,minimum width=2.45cm,minimum height=0.95cm] (pointer) {production\\pointer};
-
-  \draw[ilabflow] (timer) -- (service);
-  \draw[ilabflow] (service) -- (snapshot);
-  \draw[ilabflow] (snapshot) -- (train);
-  \draw[ilabflow] (train) -- (artifact);
-  \draw[ilabflow] (artifact) -- (pointer);
-\end{tikzpicture}
-}
-\tightsep
-\begin{itemize}
-  \item Scheduled retraining is present but disabled until the manual proof run is accepted.
-  \item Promotion failure leaves collection and serving alone.
-  \item Sanitized model registry metadata can be committed; generated run directories stay off-source.
-\end{itemize}
-\end{frame}
-
-\sectionframe{04}{Labels And Methodology}
-
-\begin{frame}{Zone 5 Labels}
-\begin{columns}[T,onlytextwidth]
-\column{0.48\textwidth}
-\textbf{CV truth}
-\begin{itemize}
-  \item One camera, one Desk 5 mask, one 10-second Zone 5 label stream.
-  \item Target is \code{zone_occupied}.
-  \item Occupied when median person count crosses the configured threshold.
+  \item Target: \code{zone_occupied}.
+  \item Source: Desk 5 CV count aggregated into 10-second buckets.
+  \item Positive rule: median \code{occupancy_count} crosses the configured threshold.
+  \item Missing CV buckets remain null, not false negatives.
+  \item mmWave is an input feature, not the target.
 \end{itemize}
 
 \column{0.48\textwidth}
-\textbf{Guardrails}
+\textbf{Feature contract}
 \begin{itemize}
-  \item Missing labels stay null until a real CV bucket exists.
-  \item Sensor missingness is diagnostic metadata, not an occupancy signal.
-  \item Trainer snapshots the rolling CSV before fitting.
+  \item Raw inputs: AIR-1 Zone 5 environment, \code{power_s5}, \code{mmwave_s5}, SEN55, time.
+  \item Model contract: \code{zone5_mmwave_recency_v1}.
+  \item Missing indicators are retained as diagnostics and metadata, not model inputs.
+  \item Core gating covers AIR-1, power, and mmWave; SEN55 is optional and neutral-filled when unavailable.
 \end{itemize}
-\end{columns}
-\tightsep
-\begin{center}
-\resizebox{0.88\textwidth}{!}{%
-\begin{tikzpicture}[node distance=0.8cm]
-  \node[ilabbox,minimum width=2.4cm] (rtsp) {RTSP frames};
-  \node[ilabbox,right=of rtsp,minimum width=2.4cm] (mask) {Desk 5\\mask + YOLO};
-  \node[ilabbox,right=of mask,minimum width=2.4cm] (bucket) {10-second\\buckets};
-  \node[ilabbox,right=of bucket,minimum width=2.4cm] (label) {\code{zone_occupied}\\target};
-  \draw[ilabflow] (rtsp) -- (mask);
-  \draw[ilabflow] (mask) -- (bucket);
-  \draw[ilabflow] (bucket) -- (label);
-\end{tikzpicture}
-}
-\end{center}
-\end{frame}
-
-\begin{frame}[shrink=3]{Zone 5 Methodology}
-\begin{columns}[T,onlytextwidth]
-\column{0.46\textwidth}
-\textbf{Feature families}
-\begin{itemize}
-  \item AIR-1 Zone 5: temperature, humidity, CO2, PM2.5.
-  \item Smart plug: \code{power_s5}.
-  \item mmWave: \code{mmwave_s5} and recency context.
-  \item SEN55: particulate, environment, VOC, NOx.
-  \item Time: hour and day-of-week cycles.
-\end{itemize}
-
-\column{0.50\textwidth}
-\begin{block}{Training contract}
-\begin{itemize}
-  \item Current marker: \code{zone5_mmwave_recency_v1}.
-  \item Missing indicators are diagnostics and metadata, not model inputs.
-  \item Legacy \code{zone5_missingness_decoupled_v1} artifacts remain loadable for live compatibility.
-  \item Core live gating covers AIR-1, \code{power_s5}, and \code{mmwave_s5}; SEN55 is optional.
-\end{itemize}
-\end{block}
 \end{columns}
 \end{frame}
 
-\begin{frame}{mmWave Recency Contract}
+\begin{frame}[shrink=3]{mmWave Recency Without Leakage}
 \centering
 \resizebox{0.95\textwidth}{!}{%
 \begin{tikzpicture}[node distance=0.70cm and 0.82cm]
@@ -342,85 +200,131 @@ model training, staged rollout, and production verification?
 \begin{columns}[T,onlytextwidth]
 \column{0.48\textwidth}
 \begin{itemize}
-  \item mmWave remains an input feature, not the training target.
-  \item Recency features are computed from prior samples only.
+  \item Recency is derived from samples at or before the prediction window.
+  \item No future CV label or future mmWave state is allowed into the feature window.
 \end{itemize}
 \column{0.48\textwidth}
 \begin{itemize}
-  \item The model sees short-history motion context without future leakage.
-  \item Dashboard history surfaces the lookback context beside probability.
+  \item The research question is whether short-history motion improves robustness.
+  \item The guard is target separation: \code{zone_occupied} remains CV-derived.
 \end{itemize}
 \end{columns}
 \end{frame}
 
-\sectionframe{05}{Deployment And Verification}
-
-\begin{frame}{Deployment Architecture}
-\centering
-\resizebox{0.98\textwidth}{!}{%
-\begin{tikzpicture}[x=1cm,y=1cm]
-  \node[ilabbox,minimum width=2.45cm] (repo) at (-5.20,0.58) {GitHub repo};
-  \node[ilabbox,minimum width=2.55cm] (runner) at (-2.30,0.58) {self-hosted\\runner};
-  \node[ilabbox,minimum width=2.75cm] (prod) at (0.70,1.28) {production checkout\\user-systemd};
-  \node[ilabbox,minimum width=2.75cm] (stage) at (0.70,-0.12) {staging checkout\\Docker Compose};
-  \node[ilabbox,minimum width=2.80cm] (services) at (4.10,1.28) {production services\\ports 8000 / 8015};
-  \node[ilabbox,minimum width=2.80cm] (compose) at (4.10,-0.12) {staging services\\ports 8005 / 8016};
-  \node[ilabstore,minimum width=3.0cm] (state) at (4.10,-1.95) {server runtime\\data / model / logs};
-  \draw[ilabflow] (repo) -- (runner);
-  \draw[ilabflow] (runner) -- (prod);
-  \draw[ilabflow] (runner) -- (stage);
-  \draw[ilabflow] (prod) -- (services);
-  \draw[ilabflow] (stage) -- (compose);
-  \draw[ilabthinflow] (state.north west) to[out=150,in=250] (services.south west);
-  \draw[ilabthinflow] (state.north east) to[out=30,in=290] (compose.south east);
-\end{tikzpicture}
-}
-\tightsep
-\begin{center}
-\small Runtime credentials, generated data, model runs, and logs live on the server, not in the presentation or source history.
-\end{center}
-\end{frame}
-
-\begin{frame}{Verification And Roadmap}
+\begin{frame}[shrink=3]{Evaluation Design And Validation Gates}
 \begin{columns}[T,onlytextwidth]
 \column{0.48\textwidth}
-\textbf{Verification gates}
+\textbf{Offline validation}
 \begin{itemize}
-  \item Python compile checks for package and app modules.
-  \item Zone 5 ground-truth contract tests.
-  \item Vite build checks.
-  \item Systemd unit verification.
-  \item Docker Compose config and image build.
-  \item \code{/api/health} confirms app health and model readiness fields.
+  \item Hidden blind-test split from the latest calendar day.
+  \item Rolling-calendar CV on pre-test dates.
+  \item Coverage filtering before strict fold selection.
+  \item PR-AUC, ROC-AUC, Brier score, log loss, and both-class checks.
+  \item Positive windows, positive buckets, and positive events as evidence gates.
 \end{itemize}
 
 \column{0.48\textwidth}
-\textbf{Roadmap and risks}
+\textbf{Live validation}
 \begin{itemize}
-  \item Prove manual Zone 5 retraining before enabling scheduled retrain.
-  \item Add model freshness, promotion, and upstream API latency monitoring.
-  \item Live QA depends on lab network, API, cameras, and devices.
-  \item Training quality depends on both-class CV labels across usable windows.
+  \item Smoke loading verifies target, feature columns, and artifact compatibility.
+  \item Same-window non-regression compares candidate and production on the candidate blind-test window.
+  \item \code{/api/health} exposes readiness, errors, and model pointer state.
+  \item Promotion failure does not stop collectors or dashboard availability.
 \end{itemize}
 \end{columns}
 \end{frame}
 
-\begin{frame}{Source Anchors}
-\scriptsize
+\begin{frame}[shrink=3]{Reproducibility And Operational Validity}
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\begin{block}{Why CI/CD is in the research story}
+\small
+Model claims are not accepted by source edits alone. Staging, production,
+training, and model delivery each have a separate live-exposure gate.
+\end{block}
+\tightsep
+\textbf{Boundaries}
+\small
+\begin{itemize}
+  \item Production: user-systemd live services.
+  \item Staging: Docker Compose on separate ports.
+  \item Trainer: snapshot, lock, validation, promotion.
+  \item Delivery: vetted artifact before pointer update.
+\end{itemize}
+
+\column{0.48\textwidth}
+\centering
+\resizebox{0.94\linewidth}{!}{%
+\begin{tikzpicture}[node distance=0.62cm and 0.72cm]
+  \node[ilabbox,minimum width=2.25cm] (repo) {GitHub\\source};
+  \node[ilabbox,right=of repo,minimum width=2.45cm] (checks) {compile, tests,\\config checks};
+  \node[ilabbox,above right=0.30cm and 0.78cm of checks,minimum width=2.55cm] (prod) {production\\systemd};
+  \node[ilabbox,below right=0.30cm and 0.78cm of checks,minimum width=2.55cm] (stage) {staging\\Compose};
+  \node[ilabbox,right=1.05cm of prod,minimum width=2.45cm] (trainer) {trainer +\\promoter};
+  \node[ilabbox,right=1.05cm of stage,minimum width=2.45cm] (health) {health +\\smoke gates};
+  \draw[ilabflow] (repo) -- (checks);
+  \draw[ilabflow] (checks) -- (prod);
+  \draw[ilabflow] (checks) -- (stage);
+  \draw[ilabflow] (prod) -- (trainer);
+  \draw[ilabflow] (stage) -- (health);
+  \draw[ilabthinflow] (trainer) -- (health);
+\end{tikzpicture}
+}
+\end{columns}
+\end{frame}
+
+\begin{frame}[shrink=4]{Limitations And Threats To Validity}
+\begin{columns}[T,onlytextwidth]
+\column{0.49\textwidth}
+\textbf{Data and label threats}
+\begin{itemize}
+  \item CV labels are proxy truth and can fail under occlusion, lighting shifts, or mask errors.
+  \item Sensor/API outages can reduce feature coverage or delay joined rows.
+  \item Class imbalance and sparse occupied windows can make metrics unstable.
+  \item Delayed buckets can revise recent rows after the first live append.
+\end{itemize}
+
+\column{0.47\textwidth}
+\textbf{Operational threats}
+\begin{itemize}
+  \item Network reachability and upstream API latency affect live inference freshness.
+  \item Artifact compatibility must be explicit as the contract evolves.
+  \item A healthy dashboard is not proof that the latest candidate model is valid.
+  \item Source docs intentionally exclude populated env values, logs, and run artifacts.
+\end{itemize}
+\end{columns}
+\end{frame}
+
+\begin{frame}[shrink=4]{Research Roadmap And Source Anchors}
+\begin{columns}[T,onlytextwidth]
+\column{0.42\textwidth}
+\textbf{Roadmap}
+\begin{itemize}
+  \item Continue proving strict rolling-calendar candidates before scheduled retraining is expanded.
+  \item Track model freshness, upstream latency, and label coverage as first-class readiness signals.
+  \item Keep raw-sensor feature evolution separate from missingness-as-signal regressions.
+\end{itemize}
+
+\column{0.54\textwidth}
+\tiny
+\renewcommand{\arraystretch}{0.96}
 \begin{tabularx}{\textwidth}{@{}lX@{}}
 \toprule
 \textbf{Topic} & \textbf{Primary source paths} \\
 \midrule
-Dashboard and runtime & \pathref{zone5_cv_time_features_package/web_app/}, \pathref{zone5/.../web_app_vite/} \\
-Labels and model contract & \pathref{zone5_cv_time_features_package/PIPELINE.md}, \pathref{zone5/.../feature_contract.py} \\
-mmWave parsing & \pathref{zone5/.../air1_exporter.py}, \pathref{zone5/.../feature_builder.py} \\
-CI/CD and deployment & \pathref{.github/workflows/zone5-*.yml}, \pathref{zone5/.../CICD_SYSTEMD.md}, \pathref{zone5/.../CICD_DOCKER_COMPOSE.md} \\
-Model delivery & \pathref{zone5/.../CICD_MODEL_DELIVERY.md}, \pathref{zone5/.../model_registry/README.md} \\
+Pipeline & \pathref{zone5/.../PIPELINE.md} \\
+Features & \pathref{zone5/.../feature_contract.py} \\
+CV labels & \pathref{zone5/.../build_cv_training_data.py} \\
+mmWave recency & \pathref{zone5/.../feature_contract.py} \\
+Validation & \pathref{zone5/.../promote_model.py} \\
+Gates & \pathref{.github/.../zone5-*.yml}, \pathref{zone5/.../CICD_*.md} \\
 \bottomrule
 \end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+\end{columns}
 \tightsep
 \begin{center}
-\parbox{0.86\textwidth}{\centering\textbf{Closing point: source, staging runtime, production runtime, training, and model artifacts each have a separate owner and gate.}}
+\parbox{0.82\textwidth}{\centering\textbf{Closing point: Zone 5 treats model contract, labels, and rollout gates as part of the research method.}}
 \end{center}
 \end{frame}
 
