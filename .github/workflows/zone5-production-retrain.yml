@@ -37,11 +37,29 @@ jobs:
       ZONE5_PRODUCTION_HEALTH_URL: ${{ vars.ZONE5_PRODUCTION_HEALTH_URL || 'http://192.168.10.17:8000/api/health' }}
 
     steps:
+      - name: Check active production trainer
+        id: active_trainer
+        run: |
+          set -euo pipefail
+          active_state="$(systemctl --user show zone5-trainer.service -p ActiveState --value 2>/dev/null || true)"
+          echo "active_state=${active_state:-unknown}" >> "$GITHUB_OUTPUT"
+          case "$active_state" in
+            active|activating)
+              echo "::notice::zone5-trainer.service is $active_state; leaving the existing retrain in place. Rerun this workflow after it finishes to package and deliver a promotion."
+              echo "already_running=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "already_running=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
       - name: Check out repository
+        if: steps.active_trainer.outputs.already_running != 'true'
         uses: actions/checkout@v4
 
       - name: Start production trainer and package promoted model
         id: retrain
+        if: steps.active_trainer.outputs.already_running != 'true'
         run: |
           set -euo pipefail
           local_env="$RUNNER_TEMP/zone5-training.env"
@@ -154,6 +172,12 @@ jobs:
                 ;;
             esac
           done < "$local_env"
+
+      - name: Report active retrain
+        if: steps.active_trainer.outputs.already_running == 'true'
+        run: |
+          echo "Zone 5 production retrain was already running with ActiveState=${{ steps.active_trainer.outputs.active_state }}."
+          echo "No new trainer was started and no model artifact was packaged."
 
       - name: Verify packaged model artifact
         id: verify_model

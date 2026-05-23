@@ -25,8 +25,11 @@ The systemd services are:
 - `zone5-trainer.service`
 
 The source deploy workflow restarts only the six live services. It keeps
-`zone5-trainer.timer` disabled and refuses to deploy while
-`zone5-trainer.service` is active or activating.
+`zone5-trainer.timer` disabled. If `zone5-trainer.service` is already active or
+activating when the workflow reaches the production runner, the workflow reports
+a deferred deploy and exits without changing the production checkout or live
+services. The deploy helper still refuses to mutate production if training
+starts after that preflight.
 
 Runtime state stays on the server in `data/`, `model/`, `logs/`,
 `.python-packages/`, and `web_app/.env`. CI should test code; it should not
@@ -262,6 +265,9 @@ production backend/frontend health.
 
 The source deploy, retrain, and model-delivery workflows all use the shared
 `zone5-production` concurrency group so production mutations do not overlap.
+The source deploy and retrain workflows also preflight `zone5-trainer.service`;
+an already-running retrain becomes a successful deferred/no-op workflow run
+instead of a red failure that implies broken code.
 After the first manual source deploy, verify the runner, staging stack, and
 production endpoints from the production host:
 
@@ -436,7 +442,11 @@ Production retraining is owned by `.github/workflows/zone5-production-retrain.ym
 after the manual proof run succeeds and `ZONE5_ENABLE_SCHEDULED_RETRAIN=true`
 is set. Keep `zone5-trainer.timer` disabled so GitHub and systemd do not both
 launch retraining, and keep inline collector retraining disabled with
-`RETRAIN_AFTER_SNAPSHOT=0` so training cannot block live appends.
+`RETRAIN_AFTER_SNAPSHOT=0` so training cannot block live appends. If the
+production trainer is already active when the workflow starts, the workflow
+leaves that run alone and exits successfully with an "already running" notice;
+rerun it after the active trainer finishes if a packaged model delivery is
+needed.
 
 ## 7. Verify And Roll Back
 

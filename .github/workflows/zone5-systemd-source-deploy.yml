@@ -94,8 +94,32 @@ jobs:
       PRODUCTION_FRONTEND_HEALTH_URL: ${{ vars.ZONE5_PRODUCTION_FRONTEND_HEALTH_URL || 'http://127.0.0.1:8015/api/health' }}
 
     steps:
+      - name: Check active production trainer
+        id: active_trainer
+        run: |
+          set -euo pipefail
+          active_state="$(systemctl --user show zone5-trainer.service -p ActiveState --value 2>/dev/null || true)"
+          echo "active_state=${active_state:-unknown}" >> "$GITHUB_OUTPUT"
+          case "$active_state" in
+            active|activating)
+              echo "::notice::Production source deploy deferred because zone5-trainer.service is $active_state. Rerun this workflow after training finishes."
+              echo "defer_deploy=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "defer_deploy=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
       - name: Check out repository
+        if: steps.active_trainer.outputs.defer_deploy != 'true'
         uses: actions/checkout@v4
 
       - name: Deploy source to production user-systemd checkout
+        if: steps.active_trainer.outputs.defer_deploy != 'true'
         run: bash zone5_cv_time_features_package/ci/deploy_zone5_systemd_source.sh
+
+      - name: Report deferred deploy
+        if: steps.active_trainer.outputs.defer_deploy == 'true'
+        run: |
+          echo "Zone 5 production source deploy was deferred with ActiveState=${{ steps.active_trainer.outputs.active_state }}."
+          echo "The production checkout and live services were not changed."
