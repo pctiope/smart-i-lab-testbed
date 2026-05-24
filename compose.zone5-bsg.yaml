@@ -33,6 +33,7 @@ x-zone5-volumes: &zone5-volumes
   - ./zone5_cv_time_features_package/data:/app/data
   - ./zone5_cv_time_features_package/model:/app/model
   - ./zone5_cv_time_features_package/logs:/app/logs
+  - ${ZONE5_LIVE_FRAME_DATA_DIR:-/home/ngrg-user/smart-i-lab-testbed/zone5_cv_time_features_package/data}:/app/live_frames:ro
   - ./zone5_cv_time_features_package/cv_counter/masks:/app/cv_counter/masks:ro
   - ./zone5_cv_time_features_package/cv_counter/models:/app/cv_counter/models:ro
   - ./zone5_cv_time_features_package/cv_counter/trackers:/app/cv_counter/trackers:ro
@@ -145,6 +146,7 @@ services:
       HOST: 0.0.0.0
       PORT: "8000"
       ZONE5_PRODUCTION_POINTER: model/production_run.txt
+      ZONE5_ANNOTATED_FRAME_PATH: ${ZONE5_ANNOTATED_FRAME_PATH:-/app/live_frames/yolo_latest.jpg}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/health >/dev/null || exit 1"]
       interval: 30s

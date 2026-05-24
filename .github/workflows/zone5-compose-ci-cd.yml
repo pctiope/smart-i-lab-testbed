@@ -2,7 +2,7 @@ name: Zone 5 Compose CI/CD
 
 on:
   push:
-    branches: [cicd/zone5-compose]
+    branches: [main]
     paths:
       - .github/workflows/zone5-compose-ci-cd.yml
       - CSV Training Data Code.py
@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   ci:
-    name: Validate Zone 5 Compose branch
+    name: Validate Zone 5 Compose stack
     runs-on: ubuntu-latest
     timeout-minutes: 90
     defaults:
@@ -124,9 +124,9 @@ jobs:
     runs-on: [self-hosted, linux, x64, zone5, smart-ilab]
     timeout-minutes: 30
     needs: ci
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/cicd/zone5-compose'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     env:
-      DEPLOY_BRANCH: cicd/zone5-compose
+      DEPLOY_BRANCH: main
       REPO_URL: https://github.com/${{ github.repository }}.git
 
     steps:
@@ -171,6 +171,7 @@ jobs:
           ZONE5_VITE_PORT=8016
           ZONE5_COMPOSE_PROJECT_NAME=zone5-compose
           ZONE5_BSG_COMPOSE_PROJECT_NAME=zone5-compose
+          ZONE5_LIVE_FRAME_DATA_DIR=$PROD_ROOT/data
           EOF
           done
 
