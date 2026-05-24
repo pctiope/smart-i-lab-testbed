@@ -2084,7 +2084,8 @@ class PackageAuditTests(unittest.TestCase):
         self.assertIn("const ys = smoothProbabilitySeries(valid.map(ev => ev.probability))", app_js)
         self.assertIn("const displayedProbability = smoothProbability(event.probability)", app_js)
         self.assertIn("setOccupiedFlag(visualOccupied(displayedProbability), displayedProbability)", app_js)
-        self.assertIn("p=${displayedProbability.toFixed(4)}", app_js)
+        self.assertIn("function formatProbability(probability)", app_js)
+        self.assertIn("p=${formatProbability(displayedProbability)}", app_js)
 
     def test_vite_history_chart_shows_mmwave_lookback_fraction(self) -> None:
         package_root = Path(__file__).resolve().parents[1]
@@ -2095,7 +2096,7 @@ class PackageAuditTests(unittest.TestCase):
         self.assertIn("function mmwaveLookbackFraction(event)", app_js)
         self.assertIn("sensor_context?.mmwave_s5_occupied_fraction", app_js)
         self.assertIn('name: "mmWave lookback"', app_js)
-        self.assertIn("raw p=%{y:.4f}", app_js)
+        self.assertIn("raw p=%{y:.6f}", app_js)
         self.assertIn("RAW PRED", html)
         self.assertIn("MMWAVE LOOKBACK", html)
 
