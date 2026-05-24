@@ -130,19 +130,23 @@ shared AIR-1 readings, SEN55 readings, and readiness gates all shape the result.
 \renewcommand{\arraystretch}{1.0}
 \end{frame}
 
-\begin{frame}[shrink=3]{End-To-End Runtime Flow}
+\begin{frame}[shrink=5]{End-To-End Runtime Flow}
 \centering
 \resizebox{0.98\textwidth}{!}{%
-\begin{tikzpicture}[node distance=0.55cm and 0.70cm]
-  \node[ilabbox,minimum width=2.25cm] (cam1) {cam1\\zone tracker};
-  \node[ilabbox,below=of cam1,minimum width=2.25cm] (cam2) {cam2\\zone tracker};
-  \node[ilabbox,right=of cam1,yshift=-0.50cm,minimum width=2.65cm] (mqtt) {per-zone MQTT\\payloads};
-  \node[ilabbox,right=of mqtt,minimum width=2.55cm] (agg) {aggregator\\10-second labels};
-  \node[ilabbox,below=of agg,minimum width=2.55cm] (sources) {AIR-1 + SEN55\\features};
-  \node[ilabbox,right=of agg,yshift=-0.50cm,minimum width=2.65cm] (rows) {long-form\\training rows};
-  \node[ilabbox,right=of rows,minimum width=2.45cm] (trainer) {shared model\\trainer};
-  \node[ilabbox,right=of trainer,minimum width=2.45cm] (pointer) {production\\pointer};
-  \node[ilabbox,right=of pointer,minimum width=2.45cm,fill=ILABOrange!12,draw=ILABOrange] (app) {FastAPI\\all-zones app};
+\begin{tikzpicture}[node distance=0.48cm and 0.62cm]
+  \node[ilabbox,minimum width=2.05cm] (cam1) {cam1\\zone tracker};
+  \node[ilabbox,below=of cam1,minimum width=2.05cm] (cam2) {cam2\\zone tracker};
+  \node[ilabbox,right=of cam1,yshift=-0.50cm,minimum width=2.35cm] (mqtt) {per-zone MQTT\\payloads};
+  \node[ilabbox,right=of mqtt,minimum width=2.30cm] (agg) {aggregator\\10-second labels};
+  \node[ilabbox,below=of agg,minimum width=2.30cm] (sources) {AIR-1 + SEN55\\features};
+  \node[ilabstore,right=of agg,yshift=-0.50cm,minimum width=2.25cm] (rows) {CSV/Parquet\\long-form rows};
+  \node[ilabbox,right=of rows,minimum width=2.25cm] (trainer) {shared model\\trainer};
+  \node[ilabbox,right=of trainer,minimum width=2.15cm] (pointer) {production\\pointer};
+  \node[ilabbox,right=of pointer,minimum width=2.15cm,fill=ILABOrange!12,draw=ILABOrange] (app) {FastAPI\\all-zones API};
+  \node[ilabbox,below=of app,minimum width=2.15cm,fill=ILABTeal!10,draw=ILABTeal] (ui) {static dashboard\\HTML/JS};
+  \node[font=\bfseries\scriptsize,text=ILABNavy,above=0.24cm of agg] {Data};
+  \node[font=\bfseries\scriptsize,text=ILABNavy,above=0.24cm of trainer] {Training};
+  \node[font=\bfseries\scriptsize,text=ILABNavy,above=0.24cm of app] {Frontend/Serving};
   \draw[ilabflow] (cam1) -- (mqtt);
   \draw[ilabflow] (cam2) -- (mqtt);
   \draw[ilabflow] (mqtt) -- (agg);
@@ -151,24 +155,22 @@ shared AIR-1 readings, SEN55 readings, and readiness gates all shape the result.
   \draw[ilabflow] (rows) -- (trainer);
   \draw[ilabflow] (trainer) -- (pointer);
   \draw[ilabflow] (pointer) -- (app);
+  \draw[ilabflow] (app) -- (ui);
   \draw[ilabthinflow] (rows) -- (app);
-  \draw[ilabthinflow] (cam1) .. controls +(0,1.6) and +(0,1.6) .. (app);
 \end{tikzpicture}
 }
 \tightsep
 \begin{center}
-\chip{Track}
+\chip{Data: track + aggregate + join}
 \hspace{0.35em}
-\chip{Aggregate}
+\chip{Training: shared model + pointer}
 \hspace{0.35em}
-\chip{Join}
-\hspace{0.35em}
-\chip{Train}
-\hspace{0.35em}
-\chip{Promote}
-\hspace{0.35em}
-\chip{Serve}
+\chip{Frontend: FastAPI static UI}
 \end{center}
+\tightsep
+\begin{block}{Architectural boundary}
+\small AIR1 remains package-local CSV/Parquet and does not inherit Zone 5 BSG, Vite, power, or mmWave assumptions.
+\end{block}
 \end{frame}
 
 \begin{frame}[shrink=5]{Active Services}

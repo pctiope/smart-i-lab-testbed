@@ -132,19 +132,23 @@ Trainer and production-pointer policy stay production-owned.
 \renewcommand{\arraystretch}{1.0}
 \end{frame}
 
-\begin{frame}[shrink=3]{End-To-End Runtime Flow}
+\begin{frame}[shrink=5]{End-To-End Runtime Flow}
 \centering
 \resizebox{0.98\textwidth}{!}{%
-\begin{tikzpicture}[node distance=0.55cm and 0.76cm]
-  \node[ilabbox,minimum width=2.35cm] (camera) {Desk 5\\masked camera};
-  \node[ilabbox,below=of camera,minimum width=2.35cm] (sensors) {AIR-1, plug,\\mmWave APIs};
-  \node[ilabbox,right=of camera,minimum width=2.65cm] (counter) {person counter\\YOLO/ByteTrack};
-  \node[ilabbox,right=of counter,minimum width=2.55cm] (agg) {MQTT aggregator\\10-second labels};
-  \node[ilabbox,right=of sensors,minimum width=2.55cm] (collector) {BSG collector\\Bronze/Silver};
-  \node[ilabbox,right=of collector,minimum width=2.55cm] (silver) {Silver\\training input};
-  \node[ilabbox,right=of silver,minimum width=2.55cm] (trainer) {BSG trainer\\Parquet snapshot};
-  \node[ilabbox,right=of trainer,minimum width=2.55cm] (promoter) {promoter\\production pointer};
-  \node[ilabbox,right=of agg,yshift=-0.53cm,minimum width=2.55cm,fill=ILABOrange!12,draw=ILABOrange] (app) {FastAPI app\\probability + health};
+\begin{tikzpicture}[node distance=0.48cm and 0.62cm]
+  \node[ilabbox,minimum width=2.15cm] (camera) {Desk 5\\masked camera};
+  \node[ilabbox,below=of camera,minimum width=2.15cm] (sensors) {AIR-1, plug,\\mmWave APIs};
+  \node[ilabbox,right=of camera,minimum width=2.35cm] (counter) {person counter\\YOLO/ByteTrack};
+  \node[ilabbox,right=of counter,minimum width=2.30cm] (agg) {MQTT aggregator\\10-second labels};
+  \node[ilabbox,right=of sensors,minimum width=2.30cm] (collector) {BSG collector\\Bronze/Silver};
+  \node[ilabstore,right=of collector,minimum width=2.20cm] (silver) {Silver\\training input};
+  \node[ilabbox,right=of silver,minimum width=2.25cm] (trainer) {BSG trainer\\Parquet snapshot};
+  \node[ilabbox,right=of trainer,minimum width=2.25cm] (promoter) {model artifacts\\production pointer};
+  \node[ilabbox,right=of promoter,minimum width=2.15cm,fill=ILABOrange!12,draw=ILABOrange] (app) {FastAPI\\API + health};
+  \node[ilabbox,below=of app,minimum width=2.15cm,fill=ILABTeal!10,draw=ILABTeal] (vite) {Vite UI\\8015/8016};
+  \node[font=\bfseries\scriptsize,text=ILABNavy,above=0.24cm of counter] {Data};
+  \node[font=\bfseries\scriptsize,text=ILABNavy,above=0.24cm of trainer] {Training};
+  \node[font=\bfseries\scriptsize,text=ILABNavy,above=0.24cm of app] {Frontend/Serving};
   \draw[ilabflow] (camera) -- (counter);
   \draw[ilabflow] (counter) -- (agg);
   \draw[ilabflow] (sensors) -- (collector);
@@ -153,24 +157,21 @@ Trainer and production-pointer policy stay production-owned.
   \draw[ilabflow] (silver) -- (trainer);
   \draw[ilabflow] (trainer) -- (promoter);
   \draw[ilabflow] (promoter) -- (app);
-  \draw[ilabthinflow] (silver) -- (app);
-  \draw[ilabthinflow] (agg) -- (app);
+  \draw[ilabflow] (app) -- (vite);
 \end{tikzpicture}
 }
 \tightsep
 \begin{center}
-\chip{Collect}
+\chip{Data: collect + join}
 \hspace{0.35em}
-\chip{Join}
+\chip{Training: snapshot + promote}
 \hspace{0.35em}
-\chip{Snapshot}
-\hspace{0.35em}
-\chip{Train}
-\hspace{0.35em}
-\chip{Promote}
-\hspace{0.35em}
-\chip{Serve}
+\chip{Frontend: FastAPI + Vite}
 \end{center}
+\tightsep
+\begin{block}{Architectural boundary}
+\small BSG owns Zone 5 data plumbing; training writes the existing model artifact and pointer contract; the Vite shell reads FastAPI and does not bypass promotion gates.
+\end{block}
 \end{frame}
 
 \begin{frame}[shrink=5]{Active Services}
