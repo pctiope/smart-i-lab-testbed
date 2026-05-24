@@ -147,6 +147,7 @@ services:
       PORT: "8000"
       ZONE5_PRODUCTION_POINTER: model/production_run.txt
       ZONE5_ANNOTATED_FRAME_PATH: ${ZONE5_ANNOTATED_FRAME_PATH:-/app/live_frames/yolo_latest.jpg}
+      ZONE5_CV_GROUND_TRUTH_TABLE: ${ZONE5_CV_GROUND_TRUTH_TABLE:-/app/live_frames/cv_occupancy_zone5_10sec.csv}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/api/health >/dev/null || exit 1"]
       interval: 30s

@@ -130,8 +130,22 @@ function mmwaveLookbackFraction(event) {
     return Number.isFinite(value) ? value : null;
 }
 
+function formatProbability(probability) {
+    const p = Number(probability);
+    if (!Number.isFinite(p)) return "--";
+    if (Math.abs(p) < 0.001 && p !== 0) return p.toFixed(6);
+    return p.toFixed(4);
+}
+
+function formatMse(value) {
+    const mse = Number(value);
+    if (!Number.isFinite(mse)) return "--";
+    if (mse > 0 && mse < 0.0001) return mse.toExponential(2);
+    return mse.toFixed(4);
+}
+
 function setDigits(probability) {
-    DIGITS.textContent = probability.toFixed(4);
+    DIGITS.textContent = formatProbability(probability);
     DIGITS.classList.remove("flash");
     void DIGITS.offsetWidth;          // restart animation
     DIGITS.classList.add("flash");
@@ -357,7 +371,7 @@ function appendEventToPlot(event) {
     const gtText = Number.isFinite(Number(event.ground_truth_count))
         ? ` cv=${Number(event.ground_truth_count).toFixed(0)}`
         : "";
-    pushTicker(`tick @ ${event.timestamp.split("T")[1] || event.timestamp} → p=${displayedProbability.toFixed(4)}${gtText}`);
+    pushTicker(`tick @ ${event.timestamp.split("T")[1] || event.timestamp} -> p=${formatProbability(displayedProbability)}${gtText}`);
 }
 
 function connectStream() {
@@ -722,7 +736,7 @@ function initHistCharts() {
         x: [], y: [],
         type: "scatter", mode: "lines", name: "raw prediction",
         line: { color: M3_PRIMARY, width: 1.8, shape: "spline", smoothing: 0.4 },
-        hovertemplate: "%{x|%H:%M:%S}<br><b>raw p=%{y:.4f}</b><extra></extra>",
+        hovertemplate: "%{x|%H:%M:%S}<br><b>raw p=%{y:.6f}</b><extra></extra>",
         showlegend: false,
     };
     Plotly.newPlot(HIST_DIV, [gtTrace, gtTrace2, mmwaveTrace, predTrace], makeHistLayout(null), {
@@ -736,7 +750,7 @@ function initHistCharts() {
         line: { color: M3_WARN, width: 1.5, shape: "spline", smoothing: 0.3 },
         fill: "tozeroy",
         fillcolor: `${M3_WARN}22`,
-        hovertemplate: "%{x|%H:%M:%S}<br><b>MSE=%{y:.6f}</b><extra></extra>",
+        hovertemplate: "%{x|%H:%M:%S}<br><b>MSE=%{y:.2e}</b><extra></extra>",
     };
     Plotly.newPlot(MSE_DIV, [mseTrace], makeMseLayout(), {
         responsive: true, displayModeBar: false,
@@ -750,22 +764,27 @@ async function refreshHistCharts() {
         if (!resp.ok) return;
         const events = await resp.json();
 
-        // only events with both probability and CV ground truth
-        const valid = events.filter(ev =>
+        const predictionEvents = events.filter(ev =>
             ev.error == null &&
-            Number.isFinite(ev.probability) &&
-            ev.ground_truth_timestamp != null
+            Number.isFinite(ev.probability)
         );
-        if (valid.length === 0) return;
+        if (predictionEvents.length === 0) return;
 
-        const xs        = valid.map(ev => ev.timestamp);
-        const predYs    = valid.map(ev => Number(ev.probability));
-        const gtYs      = valid.map(ev => ev.ground_truth_occupied === true ? 1 : 0);
-        const mmwaveYs  = valid.map(mmwaveLookbackFraction);
+        const xs        = predictionEvents.map(ev => ev.timestamp);
+        const predYs    = predictionEvents.map(ev => Number(ev.probability));
+        const gtYs      = predictionEvents.map(ev =>
+            ev.ground_truth_timestamp != null
+                ? (ev.ground_truth_occupied === true ? 1 : 0)
+                : null
+        );
+        const mmwaveYs  = predictionEvents.map(mmwaveLookbackFraction);
 
         // MSE: squared error between predicted probability and GT binary
-        const mseYs     = predYs.map((p, i) => (p - gtYs[i]) ** 2);
-        const nowTs     = valid[valid.length - 1].timestamp;
+        const mseYs     = predYs.map((p, i) =>
+            gtYs[i] === null ? null : (p - gtYs[i]) ** 2
+        );
+        const finiteMseYs = mseYs.filter(y => Number.isFinite(y));
+        const nowTs     = predictionEvents[predictionEvents.length - 1].timestamp;
 
         Plotly.react(HIST_DIV,
             [
@@ -776,7 +795,7 @@ async function refreshHistCharts() {
                   hovertemplate: "%{x|%H:%M:%S}<br><b>GT=%{y}</b><extra></extra>",
                   showlegend: false },
                 // GT occupancy background band (negative space) — fills area below 0 when GT=0, so vacant periods are visually distinct
-                { x: xs, y: gtYs.map(y => y === 0 ? 1 : 0), type: "scatter", mode: "none", name: "CV GT vacant",
+                { x: xs, y: gtYs.map(y => y === null ? null : (y === 0 ? 1 : 0)), type: "scatter", mode: "none", name: "CV GT vacant",
                   line: { shape: "vh" },
                   fill: "tozeroy", fillcolor: `${M3_UNOCCUPIED}40`,
                   hovertemplate: "%{x|%H:%M:%S}<br><b>GT=%{y}</b><extra></extra>",
@@ -789,7 +808,7 @@ async function refreshHistCharts() {
                 // Prediction probability line
                 { x: xs, y: predYs, type: "scatter", mode: "lines", name: "raw prediction",
                   line: { color: M3_PRIMARY, width: 1.8, shape: "spline", smoothing: 0.4 },
-                  hovertemplate: "%{x|%H:%M:%S}<br><b>raw p=%{y:.4f}</b><extra></extra>",
+                  hovertemplate: "%{x|%H:%M:%S}<br><b>raw p=%{y:.6f}</b><extra></extra>",
                   showlegend: false },
             ],
             makeHistLayout(nowTs)
@@ -800,12 +819,16 @@ async function refreshHistCharts() {
                type: "scatter", mode: "lines",
                line: { color: M3_WARN, width: 1.5, shape: "spline", smoothing: 0.3 },
                fill: "tozeroy", fillcolor: `${M3_WARN}22`,
-               hovertemplate: "%{x|%H:%M:%S}<br><b>MSE=%{y:.6f}</b><extra></extra>" }],
+               hovertemplate: "%{x|%H:%M:%S}<br><b>MSE=%{y:.2e}</b><extra></extra>" }],
             makeMseLayout()
         );
 
-        const avgMse = mseYs.reduce((a, b) => a + b, 0) / mseYs.length;
-        MSE_CURRENT.textContent = `avg=${avgMse.toFixed(4)}`;
+        if (finiteMseYs.length > 0) {
+            const avgMse = finiteMseYs.reduce((a, b) => a + b, 0) / finiteMseYs.length;
+            MSE_CURRENT.textContent = `avg=${formatMse(avgMse)}`;
+        } else {
+            MSE_CURRENT.textContent = "waiting for CV";
+        }
     } catch (err) {
         console.warn("hist chart refresh failed", err);
     }

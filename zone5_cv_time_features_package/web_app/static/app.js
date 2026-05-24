@@ -165,8 +165,15 @@ function eventTimestampMs(event) {
     return Number.isFinite(ms) ? ms : null;
 }
 
+function formatProbability(probability) {
+    const p = Number(probability);
+    if (!Number.isFinite(p)) return "--";
+    if (Math.abs(p) < 0.001 && p !== 0) return p.toFixed(6);
+    return p.toFixed(4);
+}
+
 function setDigits(probability) {
-    DIGITS.textContent = probability.toFixed(4);
+    DIGITS.textContent = formatProbability(probability);
     DIGITS.classList.remove("flash");
     void DIGITS.offsetWidth;          // restart animation
     DIGITS.classList.add("flash");
@@ -395,7 +402,7 @@ function appendEventToPlot(event) {
     const gtText = Number.isFinite(Number(event.ground_truth_count))
         ? ` cv=${Number(event.ground_truth_count).toFixed(0)}`
         : "";
-    pushTicker(`tick @ ${event.timestamp.split("T")[1] || event.timestamp} → p=${displayedProbability.toFixed(4)}${gtText}`);
+    pushTicker(`tick @ ${event.timestamp.split("T")[1] || event.timestamp} -> p=${formatProbability(displayedProbability)}${gtText}`);
 }
 
 function connectStream() {
