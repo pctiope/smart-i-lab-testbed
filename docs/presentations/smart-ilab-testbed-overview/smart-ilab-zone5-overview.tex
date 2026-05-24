@@ -3,13 +3,13 @@
 \input{smart-ilab-presentation-shared.tex}
 
 \title{Smart i-LAB Zone 5}
-\subtitle{Technical review of the single-zone occupancy pipeline}
+\subtitle{Technical review of the BSG-backed single-zone occupancy pipeline}
 \author{pctiope/smart-i-lab-testbed}
 \date{May 2026}
 
 \begin{document}
 
-\decktitleframe{Technical Review}{Smart i-LAB Zone 5}{Robust Desk/Zone 5 occupancy estimation across CV, AIR-1, power, mmWave, SEN55, and live-service gates}{../../../Smart-iLab_DigitalTwin/assets/smart_ilab_3d/Smart_I-LAB_floor3d_room_8_44.jpg}
+\decktitleframe{Technical Review}{Smart i-LAB Zone 5}{Robust Desk/Zone 5 occupancy estimation through BSG DuckDB/Parquet ingestion, CV labels, power, mmWave, SEN55, and live-service gates}{../../../Smart-iLab_DigitalTwin/assets/smart_ilab_3d/Smart_I-LAB_floor3d_room_8_44.jpg}
 
 \begin{frame}[shrink=4]{Technical Review Scope}
 \begin{columns}[T,onlytextwidth]
@@ -72,7 +72,7 @@ power, mmWave state, SEN55 air-quality readings, and time.
 \begin{enumerate}
   \item Can Zone 5 combine environmental, power, mmWave, SEN55, CV, and time evidence without treating missingness itself as occupancy evidence?
   \item Can short-history mmWave recency improve robustness while keeping \code{zone_occupied} CV-derived?
-  \item Can validation and promotion gates keep live serving stable while the model contract evolves?
+  \item Can BSG DuckDB/Parquet ingestion feed the existing training and promotion contract without changing the serving pointer?
   \item Can the same codebase support production user-systemd services and staged Compose checks without mixing ownership?
 \end{enumerate}
 \tightsep
@@ -87,18 +87,19 @@ power, mmWave state, SEN55 air-quality readings, and time.
 \column{0.50\textwidth}
 \textbf{Package scope}
 \begin{itemize}
-  \item Package: \code{zone5_cv_time_features_package}.
-  \item Runtime state roots: \code{data/}, \code{model/}, \code{logs/}.
+  \item Root BSG path owns Zone 5 ingestion and training input assembly.
+  \item DuckDB state root: \code{data/smart_ilab.duckdb}.
+  \item BSG support tables: \code{silver.zone5_sen55}, \code{silver.zone5_cv_labels}, and \code{silver.zone5_training_input}.
+  \item Existing model artifacts and pointers remain in the Zone 5 package model root.
   \item Training target: \code{zone_occupied}.
-  \item Sample cadence: 10-second buckets.
-  \item Model zones: Zone 5 only.
 \end{itemize}
 
 \column{0.46\textwidth}
 \textbf{Service ownership}
 \begin{itemize}
-  \item Collectors own live rows and package-local CSVs.
-  \item Trainer owns stable snapshots and candidate run folders.
+  \item \code{run_bsg_live_collector.sh} owns live Bronze/Silver ingestion.
+  \item Support-table seeding bridges CV and SEN55 rows into BSG.
+  \item \code{run_bsg_trainer.sh} snapshots Silver training input.
   \item Promoter owns \code{model/production_run.txt}.
   \item FastAPI owns serving, readiness, and dashboard payloads.
   \item UI/Vite shell is separate from model validity.
@@ -106,7 +107,8 @@ power, mmWave state, SEN55 air-quality readings, and time.
 \end{columns}
 \tightsep
 \begin{block}{Boundary}
-\small Production runtime is user-systemd. Docker Compose is a staging surface and ops/test helper; it does not replace the production trainer or production pointer policy.
+\small Production uses user-systemd from \code{main}; Compose staging uses \code{8005}/\code{8016}.
+Trainer and production-pointer policy stay production-owned.
 \end{block}
 \end{frame}
 
@@ -117,13 +119,14 @@ power, mmWave state, SEN55 air-quality readings, and time.
 \toprule
 \textbf{Path} & \textbf{Review role} \\
 \midrule
-\pathref{zone5/feature_contract.py} & Declares raw features, missing indicators, mmWave recency columns, target, sample interval, and lookback choices. \\
-\pathref{zone5/build_cv_training_data.py} & Joins cleaned feature rows with 10-second CV labels and preserves null labels. \\
-\pathref{zone5/collect_training_data.py} & Live append path for AIR-1, power, mmWave, SEN55, CV labels, and metadata refresh. \\
-\pathref{zone5/training.py} & 1D CNN, Optuna search, rolling-calendar CV, blind-test split, final training, and artifact metadata. \\
-\pathref{zone5/promote_model.py} & Promotion gates, smoke loading, positive evidence, strict-fold policy, and same-window non-regression. \\
-\pathref{web_app/main.py} & FastAPI routes, health payload, SSE stream, mask, and MJPEG endpoint. \\
-\pathref{systemd/user/} & Production service and timer declarations for the live stack. \\
+\pathref{api_ingestion.py} & Polls source APIs and writes Bronze/Silver BSG tables into DuckDB/Parquet state. \\
+\pathref{bronze2silver_preprocess.py}, \pathref{silver2gold_preprocess.py} & Normalize source layers and keep the shared BSG layout consistent. \\
+\pathref{zone5_training_migrated.py} & Builds \code{silver.zone5_training_input} from AIR-1, power, mmWave, SEN55, and CV support tables. \\
+\pathref{seed_zone5_live_support_tables.py} & Seeds Zone 5 SEN55 and CV-label support tables and can rebuild the Silver training input. \\
+\pathref{run_bsg_live_collector.sh}, \pathref{run_bsg_trainer.sh} & Production-facing wrappers used by user-systemd and operators. \\
+\pathref{bsg_retrain_once.py} & Runs one BSG retrain cycle while preserving the artifact, status, and production-pointer contract. \\
+\pathref{zone5_cv_time_features_package/zone5/feature_contract.py} & Declares model features, mmWave recency columns, target, and lookback choices. \\
+\pathref{zone5_cv_time_features_package/web_app/main.py} & FastAPI routes, health payload, SSE stream, mask, and MJPEG endpoint. \\
 \bottomrule
 \end{tabularx}
 \renewcommand{\arraystretch}{1.0}
@@ -134,21 +137,23 @@ power, mmWave state, SEN55 air-quality readings, and time.
 \resizebox{0.98\textwidth}{!}{%
 \begin{tikzpicture}[node distance=0.55cm and 0.76cm]
   \node[ilabbox,minimum width=2.35cm] (camera) {Desk 5\\masked camera};
-  \node[ilabbox,below=of camera,minimum width=2.35cm] (sensors) {AIR-1, plug,\\mmWave, SEN55};
+  \node[ilabbox,below=of camera,minimum width=2.35cm] (sensors) {AIR-1, plug,\\mmWave APIs};
   \node[ilabbox,right=of camera,minimum width=2.65cm] (counter) {person counter\\YOLO/ByteTrack};
   \node[ilabbox,right=of counter,minimum width=2.55cm] (agg) {MQTT aggregator\\10-second labels};
-  \node[ilabbox,right=of sensors,minimum width=2.55cm] (collector) {live collector\\joined rows};
-  \node[ilabbox,right=of collector,minimum width=2.55cm] (trainer) {trainer\\stable snapshot};
+  \node[ilabbox,right=of sensors,minimum width=2.55cm] (collector) {BSG collector\\Bronze/Silver};
+  \node[ilabbox,right=of collector,minimum width=2.55cm] (silver) {Silver\\training input};
+  \node[ilabbox,right=of silver,minimum width=2.55cm] (trainer) {BSG trainer\\Parquet snapshot};
   \node[ilabbox,right=of trainer,minimum width=2.55cm] (promoter) {promoter\\production pointer};
   \node[ilabbox,right=of agg,yshift=-0.53cm,minimum width=2.55cm,fill=ILABOrange!12,draw=ILABOrange] (app) {FastAPI app\\probability + health};
   \draw[ilabflow] (camera) -- (counter);
   \draw[ilabflow] (counter) -- (agg);
   \draw[ilabflow] (sensors) -- (collector);
-  \draw[ilabflow] (agg) -- (collector);
-  \draw[ilabflow] (collector) -- (trainer);
+  \draw[ilabthinflow] (agg) -- (silver);
+  \draw[ilabflow] (collector) -- (silver);
+  \draw[ilabflow] (silver) -- (trainer);
   \draw[ilabflow] (trainer) -- (promoter);
   \draw[ilabflow] (promoter) -- (app);
-  \draw[ilabthinflow] (collector) -- (app);
+  \draw[ilabthinflow] (silver) -- (app);
   \draw[ilabthinflow] (agg) -- (app);
 \end{tikzpicture}
 }
@@ -177,10 +182,10 @@ power, mmWave state, SEN55 air-quality readings, and time.
 \midrule
 \code{zone5-person-counter.service} & Runs the masked Desk 5 person counter and emits count evidence plus latest annotated frame. \\
 \code{zone5-mqtt-aggregator.service} & Converts person-count messages into 10-second CV buckets. \\
-\code{zone5-sen55-collector.service} & Buckets SEN55 MQTT readings into package-local air-quality rows. \\
-\code{zone5-live-collector.service} & Appends deduplicated joined rows and refreshes training metadata. \\
+\code{zone5-sen55-collector.service} & Buckets SEN55 MQTT readings into package-local rows consumed by BSG support-table seeding. \\
+\code{zone5-live-collector.service} & Runs \code{run_bsg_live_collector.sh} and keeps root DuckDB/Parquet BSG ingestion alive. \\
 \code{zone5-live-app.service} & Serves FastAPI dashboard data, health, SSE, MJPEG, mask, and model probability when ready. \\
-\code{zone5-trainer.timer/service} & Runs scheduled oneshot retraining and promotion without overlapping active retrains. \\
+\code{zone5-trainer.timer/service} & Runs \code{run_bsg_trainer.sh}: seed support tables, snapshot Silver input, retrain, and promote if gated. \\
 \code{zone5-vite-frontend.service} & Optional/persistent frontend shell; it does not decide model promotion. \\
 \bottomrule
 \end{tabularx}
@@ -256,10 +261,11 @@ power, mmWave state, SEN55 air-quality readings, and time.
 \toprule
 \textbf{Family} & \textbf{Columns} & \textbf{Operational note} \\
 \midrule
-AIR-1 Zone 5 & Temperature, humidity, CO2, and PM2.5 & Core environmental inputs; live collector fetches recent history. \\
-Smart plug & \code{power_s5} & Core input for Zone 5 only; not shared with AIR1 all-zones. \\
-mmWave & \code{mmwave_s5} & Core input plus recency features; target remains CV-derived. \\
-SEN55 & PM, temperature, humidity, VOC, NOx & Optional family; neutral-filled and dropout-tested during training. \\
+AIR-1 Zone 5 & Temperature, humidity, CO2, and PM2.5 & Core environmental inputs from \code{silver.air_1}. \\
+Smart plug & \code{power_s5} & Core input from \code{silver.smart_plug_v2}; Zone 5 only. \\
+mmWave & \code{mmwave_s5} & Core input from \code{silver.msr_2}; recency is derived later and target remains CV-derived. \\
+SEN55 & PM, temperature, humidity, VOC, NOx & Support-table input at \code{silver.zone5_sen55}. \\
+CV labels & \code{zone_occupied} & Support-table labels at \code{silver.zone5_cv_labels}. \\
 Time & Hour/day-of-week cycles & Deterministic cyclic features from timestamp. \\
 \bottomrule
 \end{tabularx}
@@ -270,29 +276,61 @@ Time & Hour/day-of-week cycles & Deterministic cyclic features from timestamp. \
 \end{block}
 \end{frame}
 
-\begin{frame}[shrink=4]{Live Collector Contract}
+\begin{frame}[shrink=4]{BSG Live Collector Contract}
 \begin{columns}[T,onlytextwidth]
 \column{0.50\textwidth}
 \textbf{Collector inputs}
 \begin{itemize}
-  \item Recent AIR-1 Zone 5, power, and mmWave histories.
-  \item Package-local SEN55 bucket CSV.
-  \item Package-local CV label CSV.
-  \item Backfill window for late CV and SEN55 rows.
+  \item Source API histories through \code{api_ingestion.py --all}.
+  \item AIR-1, smart-plug, and mmWave device families.
+  \item \code{SMART_ILAB_DUCKDB_PATH} for the shared DuckDB root.
+  \item Polling and log paths from wrapper or user-systemd environment.
 \end{itemize}
 
 \column{0.46\textwidth}
 \textbf{Collector outputs}
 \begin{itemize}
-  \item Joined training CSV.
-  \item Joined metadata JSON.
-  \item Deduplicated 10-second rows.
-  \item Rolling CSV retention through the CSV size guard.
+  \item Bronze/Silver DuckDB and Parquet-backed state.
+  \item Normalized \code{silver.air_1}, \code{silver.smart_plug_v2}, and \code{silver.msr_2} rows.
+  \item Ingestion logs under the root runtime log path.
+  \item No primary package-local joined training CSV for production.
 \end{itemize}
 \end{columns}
 \tightsep
 \begin{center}
-\parbox{0.84\textwidth}{\centering\small The live collector refreshes joined evidence; the trainer snapshots it before fitting so appends do not mutate a run mid-fit.}
+\parbox{0.84\textwidth}{\centering\small The BSG collector refreshes source tables; the trainer builds and snapshots \code{silver.zone5_training_input} before fitting so appends do not mutate a run mid-fit.}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=4]{BSG Training Support Tables}
+\begin{columns}[T,onlytextwidth]
+\column{0.50\textwidth}
+\textbf{Support-table bridge}
+\begin{itemize}
+  \item \code{seed_zone5_live_support_tables.py} seeds \code{silver.zone5_sen55}.
+  \item The same utility seeds \code{silver.zone5_cv_labels}.
+  \item \code{--rebuild-training-input} rebuilds \code{silver.zone5_training_input}.
+  \item The bridge is explicit because CV/SEN55 rows still originate from package-local collectors.
+\end{itemize}
+
+\column{0.46\textwidth}
+\textbf{Trainer-facing output}
+\begin{itemize}
+  \item \code{zone5_training_migrated.py} joins Silver source and support tables.
+  \item \code{zone_occupied} stays nullable and CV-derived.
+  \item Missing indicators remain diagnostics/metadata, not model inputs.
+  \item The resulting Silver table is the BSG trainer source.
+\end{itemize}
+\end{columns}
+\tightsep
+\begin{center}
+\chip{Support tables}
+\hspace{0.45em}
+\chip{Silver input}
+\hspace{0.45em}
+\chip{CV target}
+\hspace{0.45em}
+\chip{No CSV-primary trainer}
 \end{center}
 \end{frame}
 
@@ -500,13 +538,13 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
 \centering
 \resizebox{0.96\textwidth}{!}{%
 \begin{tikzpicture}[node distance=0.72cm and 0.88cm]
-  \node[ilabstore,minimum width=2.15cm] (livecsv) {live\\CSV};
-  \node[ilabbox,right=of livecsv,minimum width=2.45cm] (lock) {take\\\code{retrain.lock}};
-  \node[ilabstore,right=of lock,minimum width=2.45cm] (snapshot) {stable\\snapshot};
+  \node[ilabstore,minimum width=2.15cm] (silverinput) {Silver\\training input};
+  \node[ilabbox,right=of silverinput,minimum width=2.45cm] (lock) {take\\\code{retrain.lock}};
+  \node[ilabstore,right=of lock,minimum width=2.45cm] (snapshot) {Parquet\\snapshot};
   \node[ilabbox,right=of snapshot,minimum width=2.45cm] (fit) {fit into\\\code{model/runs}};
   \node[ilabbox,right=of fit,minimum width=2.45cm] (current) {write\\\code{current_run.txt}};
   \node[ilabbox,right=of current,minimum width=2.60cm,fill=ILABOrange!12,draw=ILABOrange] (prod) {promote to\\\code{production_run.txt}};
-  \draw[ilabflow] (livecsv) -- (lock);
+  \draw[ilabflow] (silverinput) -- (lock);
   \draw[ilabflow] (lock) -- (snapshot);
   \draw[ilabflow] (snapshot) -- (fit);
   \draw[ilabflow] (fit) -- (current);
@@ -517,13 +555,13 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
 \begin{columns}[T,onlytextwidth]
 \column{0.48\textwidth}
 \begin{itemize}
-  \item The trainer snapshots current joined rows under \code{data/training_snapshots/}.
+  \item The trainer snapshots \code{silver.zone5_training_input} under the model output root.
   \item The lock prevents overlapping retrains.
 \end{itemize}
 \column{0.48\textwidth}
 \begin{itemize}
   \item \code{current_run.txt} is candidate state.
-  \item \code{production_run.txt} is the live-serving gate.
+  \item \code{production_run.txt} remains the live-serving gate.
 \end{itemize}
 \end{columns}
 \end{frame}
@@ -582,15 +620,15 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
 \end{columns}
 \end{frame}
 
-\begin{frame}[shrink=4]{Smoke Loading And Artifact Compatibility}
+\begin{frame}[shrink=4]{BSG Smoke And Artifact Compatibility}
 \begin{columns}[T,onlytextwidth]
 \column{0.48\textwidth}
 \textbf{What smoke checks protect}
 \begin{itemize}
-  \item Target column matches \code{zone_occupied}.
-  \item Feature columns match the declared contract.
-  \item Legacy missingness feature channels are rejected for current models.
-  \item The production pointer can be read without changing live data.
+  \item \code{smoke_train_runtime.py} builds a runtime window from \code{silver.zone5_training_input}.
+  \item Smoke runs check expected columns without depending on the old joined CSV.
+  \item Optional output persistence exercises Silver and Gold training-output tables.
+  \item Promotion smoke still verifies artifact and feature compatibility.
 \end{itemize}
 
 \column{0.48\textwidth}
@@ -599,6 +637,7 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
   \item Contract evolution is expected.
   \item A checkpoint alone is not enough to serve safely.
   \item Serving reloads should fail closed rather than silently mis-score inputs.
+  \item The BSG smoke path validates data plumbing separately from model quality.
 \end{itemize}
 \end{columns}
 \tightsep
@@ -613,8 +652,8 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
 \textbf{Runtime inputs}
 \begin{itemize}
   \item Production pointer path.
-  \item Live AIR-1/power/mmWave data source.
-  \item Package-local SEN55 and CV-label tables.
+  \item BSG Silver source and training tables.
+  \item Support CV and SEN55 tables seeded from package collectors.
   \item Configured tick interval, max gap, max age, and threshold.
 \end{itemize}
 
@@ -692,22 +731,22 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
 \begin{columns}[T,onlytextwidth]
 \column{0.48\textwidth}
 \begin{block}{Production user-systemd}
-\small Production owns live collection, app serving, optional frontend, trainer timer, and production pointer state in the user checkout.
+\small Production is source-deployed from \code{main} and runs root BSG wrappers for live collection and training while preserving the package model/app contract.
 \end{block}
 \tightsep
 \begin{itemize}
-  \item Source deploy restarts live services only.
-  \item Model delivery and training remain separate workflows.
+  \item \code{zone5-live-collector.service} executes \code{run_bsg_live_collector.sh}.
+  \item \code{zone5-trainer.service} executes \code{run_bsg_trainer.sh}.
   \item Runtime state stays out of git.
 \end{itemize}
 
 \column{0.48\textwidth}
 \begin{block}{Docker Compose staging}
-\small Compose validates service wiring and staging deploy behavior on separate staging ports and branch scope.
+\small \code{compose.zone5-bsg.yaml} validates BSG service wiring with the app on \code{8005} and Vite preview on \code{8016}.
 \end{block}
 \tightsep
 \begin{itemize}
-  \item Compose checks code, config, and image build.
+  \item Compose includes BSG ingestion, support-table, smoke, trainer, app, and frontend services.
   \item Compose does not add a production trainer timer.
   \item Manual proof precedes scheduled automation.
 \end{itemize}
@@ -719,10 +758,11 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
 \column{0.50\textwidth}
 \textbf{Code and config evidence}
 \begin{itemize}
-  \item Python compile checks for package and web app.
+  \item Python compile checks for BSG modules, package, and web app.
+  \item BSG migration and retrain wrapper tests.
   \item CV ground-truth unit tests.
-  \item Docker Compose config validation and image build.
-  \item Smoke test for model artifact loading.
+  \item BSG Docker Compose config validation and image build.
+  \item Runtime smoke from Silver training input.
 \end{itemize}
 
 \column{0.46\textwidth}
@@ -789,14 +829,15 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
 \toprule
 \textbf{Topic} & \textbf{Primary source paths} \\
 \midrule
-Pipeline map & \pathref{PIPELINE.md} \\
-Feature and target contract & \pathref{zone5/feature_contract.py} \\
-CV label builder & \pathref{zone5/build_cv_training_data.py} \\
-Live collection & \pathref{zone5/collect_training_data.py} \\
-Model and training & \pathref{zone5/training.py} \\
-Promotion & \pathref{zone5/promote_model.py} \\
-Serving endpoints & \pathref{web_app/main.py} \\
-Deployment boundary & \pathref{CICD_SYSTEMD.md}, \pathref{CICD_DOCKER_COMPOSE.md} \\
+Pipeline map & \pathref{zone5_cv_time_features_package/PIPELINE.md} \\
+BSG ingestion & \pathref{api_ingestion.py}, \pathref{bronze2silver_preprocess.py}, \pathref{silver2gold_preprocess.py} \\
+BSG training input & \pathref{zone5_training_migrated.py}, \pathref{seed_zone5_live_support_tables.py} \\
+BSG retrain wrapper & \pathref{run_bsg_trainer.sh}, \pathref{bsg_retrain_once.py} \\
+Feature and target contract & \pathref{zone5_cv_time_features_package/zone5/feature_contract.py} \\
+Model training & \pathref{zone5_cv_time_features_package/zone5/training.py} \\
+Promotion & \pathref{zone5_cv_time_features_package/zone5/promote_model.py} \\
+Serving endpoints & \pathref{zone5_cv_time_features_package/web_app/main.py} \\
+Deployment boundary & \pathref{compose.zone5-bsg.yaml}, \pathref{zone5_cv_time_features_package/systemd/user/} \\
 \bottomrule
 \end{tabularx}
 \renewcommand{\arraystretch}{1.0}

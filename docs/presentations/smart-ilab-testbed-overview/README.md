@@ -17,18 +17,19 @@ artifacts.
 
 ## Structure
 
-- Zone 5 deck: technical-review scope, problem framing, service ownership,
-  package structure, runtime flow, person counter, CV labels, sensor
-  acquisition, live collector, feature contract, mmWave recency, rolling
-  windows, 1D CNN, Optuna training, validation, promotion, FastAPI endpoints,
-  health/readiness, reproducibility boundaries, limitations, roadmap, and
-  sources.
+- Zone 5 deck: technical-review scope, problem framing, BSG/user-systemd
+  ownership, root DuckDB/Parquet ingestion, BSG support tables, staged Compose
+  ports, person counter, CV labels, sensor acquisition, feature contract,
+  mmWave recency, rolling windows, 1D CNN, Optuna training, validation,
+  promotion, BSG smoke checks, FastAPI endpoints, health/readiness,
+  reproducibility boundaries, limitations, roadmap, and sources.
 - AIR1 deck: technical-review scope, problem framing, service ownership,
   two-camera coverage, per-zone MQTT labels, long-form feature contract,
-  AIR1-vs-Zone-5 contrast, production-pointer readiness, shared rolling
-  windows, 1D CNN, Optuna training, split/coverage policy, validation,
-  promotion, contract tests, FastAPI endpoints, health/readiness, operations,
-  limitations, roadmap, and sources.
+  AIR1-vs-Zone-5 contrast, explicit package-local CSV/Parquet boundary,
+  production-pointer readiness, shared rolling windows, 1D CNN, Optuna
+  training, split/coverage policy, validation, promotion, contract tests,
+  FastAPI endpoints, health/readiness, operations, limitations, roadmap, and
+  sources.
 
 ## Build
 

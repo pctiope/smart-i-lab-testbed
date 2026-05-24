@@ -25,7 +25,7 @@
 \textbf{What is explicitly out of scope}
 \begin{itemize}
   \item Zone 5 power and mmWave model inputs.
-  \item Zone 5-specific CI/CD claims, except as contrast.
+  \item Zone 5 BSG rollout and CI/CD claims, except as contrast.
   \item Populated environment values, camera URLs, credentials, live logs, and generated run metrics.
 \end{itemize}
 \end{columns}
@@ -88,11 +88,11 @@ shared AIR-1 readings, SEN55 readings, and readiness gates all shape the result.
 \column{0.50\textwidth}
 \textbf{Package scope}
 \begin{itemize}
-  \item Package: AIR1 all-zones package.
+  \item Package: AIR1 all-zones package-local CSV/Parquet path.
   \item Runtime state roots: \code{data/}, \code{model/}, \code{logs/}.
   \item Training target: \code{occupied}.
   \item Row key: \code{timestamp + zone_id}.
-  \item Valid model zones: 1--15.
+  \item No root Zone 5 BSG DuckDB path is inherited.
 \end{itemize}
 
 \column{0.46\textwidth}
@@ -107,7 +107,7 @@ shared AIR-1 readings, SEN55 readings, and readiness gates all shape the result.
 \end{columns}
 \tightsep
 \begin{block}{Contract boundary}
-\small AIR1 is not Zone 5 plus more zones. It has no power or mmWave inputs; \code{zone_id} is not a feature channel.
+\small AIR1 is not Zone 5 plus more zones. It remains package-local CSV/Parquet, has no BSG/power/mmWave inheritance, and keeps \code{zone_id} out of model input.
 \end{block}
 \end{frame}
 
@@ -335,6 +335,7 @@ CV target & \code{occupied}; nullable when CV evidence is absent. \\
 \toprule
 \textbf{Topic} & \textbf{AIR1 All-Zones} & \textbf{Zone 5} \\
 \midrule
+Data plumbing & Package-local CSV/Parquet. & Root BSG DuckDB/Silver training input. \\
 Row shape & Long-form \code{timestamp + zone_id}. & One row per Zone 5 timestamp. \\
 Valid scope & Zones 1--15; Table 16 excluded. & Zone 5 only. \\
 Target & \code{occupied}. & \code{zone_occupied}. \\
@@ -346,11 +347,11 @@ Missingness & \code{*_missing} included as model inputs. & Missingness retained 
 \renewcommand{\arraystretch}{1.0}
 \tightsep
 \begin{block}{Why the contrast matters}
-\small Porting Zone 5 runtime safety patterns does not mean importing Zone 5 sensor assumptions into AIR1.
+\small Porting Zone 5 runtime safety patterns does not mean importing Zone 5 BSG plumbing or sensor assumptions into AIR1.
 \end{block}
 \end{frame}
 
-\begin{frame}[shrink=4]{Live Collector And Joined Snapshots}
+\begin{frame}[shrink=4]{Package-Local Collector And Joined Snapshots}
 \begin{columns}[T,onlytextwidth]
 \column{0.50\textwidth}
 \textbf{Live collector inputs}
@@ -372,7 +373,7 @@ Missingness & \code{*_missing} included as model inputs. & Missingness retained 
 \end{columns}
 \tightsep
 \begin{center}
-\parbox{0.84\textwidth}{\centering\small The joined table is the shared evidence source; the trainer snapshots it before fitting.}
+\parbox{0.84\textwidth}{\centering\small The joined CSV/Parquet table is the shared evidence source; the AIR1 trainer snapshots it before fitting and does not read Zone 5 BSG tables.}
 \end{center}
 \end{frame}
 
@@ -653,6 +654,7 @@ occupancy.
 \begin{itemize}
   \item User-systemd services own camera loops, aggregator, SEN55 collector, live collector, app, and trainer timer.
   \item Generated data, logs, and model runs remain package-local and untracked.
+  \item AIR1 does not use root \code{run_bsg_live_collector.sh} or \code{run_bsg_trainer.sh}.
   \item The trainer lock prevents overlapping full fits.
 \end{itemize}
 
@@ -661,7 +663,7 @@ occupancy.
 \begin{itemize}
   \item Enable trainer timer only after collection and label coverage are mature enough.
   \item Check pointers, status JSON, service state, and health routes before declaring readiness.
-  \item Keep Zone 5 deployment detail out of AIR1 claims.
+  \item Keep Zone 5 BSG, power, and mmWave detail out of AIR1 claims.
 \end{itemize}
 \end{columns}
 \tightsep
