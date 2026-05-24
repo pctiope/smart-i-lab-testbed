@@ -19,20 +19,21 @@ artifacts.
 
 - Zone 5 deck: technical-review scope, problem framing, BSG/user-systemd
   ownership, end-to-end Data/Training/Frontend runtime architecture, root
-  DuckDB/Parquet ingestion, BSG support tables, staged Compose ports, Vite
-  frontend boundary, person counter, CV labels, sensor acquisition, feature
-  contract, mmWave recency, rolling windows, 1D CNN, Optuna training,
-  validation, promotion, BSG smoke checks, FastAPI endpoints,
+  DuckDB/Parquet ingestion, BSG data-layer chart, BSG support tables, staged
+  Compose ports, Vite frontend boundary, person counter, CV labels, sensor
+  acquisition, feature contract, mmWave recency, rolling windows, 1D CNN,
+  Optuna training, validation, promotion-gate funnel, BSG smoke checks,
+  FastAPI endpoints,
   health/readiness, reproducibility boundaries, limitations, roadmap, and
   sources.
 - AIR1 deck: technical-review scope, problem framing, service ownership,
   end-to-end Data/Training/Frontend runtime architecture, two-camera coverage,
-  per-zone MQTT labels, long-form feature contract, AIR1-vs-Zone-5 contrast,
-  explicit package-local CSV/Parquet boundary, no inherited BSG/Vite/power/mmWave
-  assumptions, production-pointer readiness, shared rolling windows, 1D CNN,
-  Optuna training, split/coverage policy, validation, promotion, contract
-  tests, FastAPI endpoints, health/readiness, operations, limitations, roadmap,
-  and sources.
+  coverage/row-shape chart, per-zone MQTT labels, long-form feature contract,
+  AIR1-vs-Zone-5 contrast, explicit package-local CSV/Parquet boundary, no
+  inherited BSG/Vite/power/mmWave assumptions, production-pointer readiness,
+  shared rolling windows, 1D CNN, Optuna training, split/coverage policy,
+  validation, readiness/promotion funnel, contract tests, FastAPI endpoints,
+  health/readiness, operations, limitations, roadmap, and sources.
 
 ## Build
 

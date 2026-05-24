@@ -216,6 +216,48 @@ shared AIR-1 readings, SEN55 readings, and readiness gates all shape the result.
 \end{block}
 \end{frame}
 
+\begin{frame}[shrink=5]{Coverage And Row-Shape Chart}
+\centering
+\resizebox{0.96\textwidth}{!}{%
+\begin{tikzpicture}[x=0.62cm,y=0.62cm]
+  \node[anchor=east,font=\scriptsize\bfseries,text=ILABNavy] at (-0.3,1.2) {cam1};
+  \foreach \z/\x in {4/0,9/1,10/2,11/3,12/4,13/5,14/6,15/7} {
+    \node[ilabbox,minimum width=0.52cm,minimum height=0.52cm,fill=ILABOrange!12,draw=ILABOrange,font=\tiny] at (\x,1.2) {\z};
+  }
+  \node[anchor=east,font=\scriptsize\bfseries,text=ILABNavy] at (-0.3,0.1) {cam2};
+  \foreach \z/\x in {1/0,2/1,3/2,5/3,6/4,7/5,8/6} {
+    \node[ilabbox,minimum width=0.52cm,minimum height=0.52cm,fill=ILABTeal!12,draw=ILABTeal,font=\tiny] at (\x,0.1) {\z};
+  }
+  \node[ilabbox,minimum width=0.62cm,minimum height=0.52cm,fill=ILABLine!30,draw=ILABSteel,font=\tiny] at (8.2,0.65) {16};
+  \node[font=\tiny,text=ILABSteel] at (8.2,-0.10) {excluded};
+  \node[ilabbox,minimum width=1.90cm] (ts) at (10.7,0.65) {timestamp};
+  \node[ilabbox,minimum width=1.60cm,right=0.38cm of ts] (zone) {zone id};
+  \node[ilabbox,minimum width=1.85cm,right=0.38cm of zone] (features) {features};
+  \node[ilabbox,minimum width=1.90cm,right=0.38cm of features,fill=ILABOrange!12,draw=ILABOrange] (target) {occupied\\nullable};
+  \draw[ilabflow] (8.75,0.65) -- (ts);
+  \draw[ilabflow] (ts) -- (zone);
+  \draw[ilabflow] (zone) -- (features);
+  \draw[ilabflow] (features) -- (target);
+  \node[font=\bfseries\scriptsize,text=ILABNavy] at (3.5,2.05) {camera coverage};
+  \node[font=\bfseries\scriptsize,text=ILABNavy] at (13.0,1.55) {long-form row};
+\end{tikzpicture}
+}
+\tightsep
+\begin{center}
+\chip{Zones 1--15}
+\hspace{0.45em}
+\chip{Table 16 excluded}
+\hspace{0.45em}
+\chip{timestamp + zone id}
+\hspace{0.45em}
+\chip{nullable target}
+\end{center}
+\tightsep
+\begin{block}{Chart scope}
+\small The chart shows mask ownership and row contract shape only; it does not encode live detections, occupancy counts, or generated training metrics.
+\end{block}
+\end{frame}
+
 \begin{frame}[shrink=4]{Per-Zone MQTT Payloads}
 \begin{columns}[T,onlytextwidth]
 \column{0.50\textwidth}
@@ -544,6 +586,39 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
   \item Promotion failure does not stop collection.
 \end{itemize}
 \end{columns}
+\end{frame}
+
+\begin{frame}[shrink=5]{Readiness And Promotion Funnel}
+\centering
+\resizebox{0.96\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.52cm and 0.68cm]
+  \node[ilabbox,minimum width=2.35cm] (rows) {CSV/Parquet\\row snapshot};
+  \node[ilabbox,right=of rows,minimum width=2.35cm] (coverage) {coverage + null\\label checks};
+  \node[ilabbox,right=of coverage,minimum width=2.35cm] (split) {timestamp-grouped\\split policy};
+  \node[ilabbox,right=of split,minimum width=2.35cm] (quality) {quality gates\\threshold policy};
+  \node[ilabbox,right=of quality,minimum width=2.35cm,fill=ILABOrange!12,draw=ILABOrange] (pointer) {atomic\\production pointer};
+  \node[ilabbox,right=of pointer,minimum width=2.30cm,fill=ILABTeal!10,draw=ILABTeal] (serve) {FastAPI static\\dashboard};
+  \draw[ilabflow] (rows) -- (coverage);
+  \draw[ilabflow] (coverage) -- (split);
+  \draw[ilabflow] (split) -- (quality);
+  \draw[ilabflow] (quality) -- (pointer);
+  \draw[ilabflow] (pointer) -- (serve);
+\end{tikzpicture}
+}
+\tightsep
+\begin{center}
+\chip{Package-local rows}
+\hspace{0.45em}
+\chip{Coverage-aware labels}
+\hspace{0.45em}
+\chip{Shared model}
+\hspace{0.45em}
+\chip{Pointer-gated serving}
+\end{center}
+\tightsep
+\begin{block}{Operational reading}
+\small AIR1 readiness is allowed to improve without importing Zone 5 BSG/Vite assumptions; promotion remains a local artifact and pointer decision.
+\end{block}
 \end{frame}
 
 \begin{frame}[shrink=4]{Contract Tests And Smoke Checks}

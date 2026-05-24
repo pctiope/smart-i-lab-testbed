@@ -335,6 +335,46 @@ Time & Hour/day-of-week cycles & Deterministic cyclic features from timestamp. \
 \end{center}
 \end{frame}
 
+\begin{frame}[shrink=5]{BSG Data Layer Chart}
+\centering
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.54cm and 0.68cm]
+  \node[ilabbox,minimum width=2.30cm] (apis) {source APIs\\AIR-1, plug, mmWave};
+  \node[ilabbox,below=of apis,minimum width=2.30cm] (pkg) {package collectors\\CV + SEN55};
+  \node[ilabstore,right=of apis,minimum width=2.15cm] (bronze) {Bronze\\raw history};
+  \node[ilabstore,right=of bronze,minimum width=2.20cm] (silver) {Silver source\\normalized};
+  \node[ilabbox,right=of pkg,minimum width=2.35cm,fill=ILABTeal!10,draw=ILABTeal] (support) {support tables\\labels + SEN55};
+  \node[ilabstore,right=of silver,yshift=-0.48cm,minimum width=2.50cm] (training) {Silver Zone 5\\training input};
+  \node[ilabbox,right=of training,minimum width=2.35cm] (snapshot) {trainer snapshot\\Parquet};
+  \node[ilabbox,right=of snapshot,minimum width=2.35cm,fill=ILABOrange!12,draw=ILABOrange] (model) {model run\\pointers};
+  \node[font=\bfseries\scriptsize,text=ILABNavy,above=0.42cm of bronze] {BSG root};
+  \node[font=\bfseries\scriptsize,text=ILABNavy,below=0.18cm of support] {Zone 5 bridge};
+  \node[font=\bfseries\scriptsize,text=ILABNavy,above=0.42cm of snapshot] {Training contract};
+  \draw[ilabflow] (apis) -- (bronze);
+  \draw[ilabflow] (bronze) -- (silver);
+  \draw[ilabflow] (silver) -- (training);
+  \draw[ilabflow] (pkg) -- (support);
+  \draw[ilabflow] (support) -- (training);
+  \draw[ilabflow] (training) -- (snapshot);
+  \draw[ilabflow] (snapshot) -- (model);
+\end{tikzpicture}
+}
+\tightsep
+\begin{center}
+\chip{Bronze/Silver state}
+\hspace{0.35em}
+\chip{Explicit support bridge}
+\hspace{0.35em}
+\chip{Snapshot before fit}
+\hspace{0.35em}
+\chip{Existing pointer contract}
+\end{center}
+\tightsep
+\begin{block}{Chart scope}
+\small This is a structural chart only: it names contracts and ownership boundaries without embedding live row counts, logs, or generated metrics.
+\end{block}
+\end{frame}
+
 \begin{frame}[shrink=5]{Feature Contract}
 \scriptsize
 \renewcommand{\arraystretch}{1.08}
@@ -619,6 +659,39 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
   \item Failure returns status without stopping collectors or app serving.
 \end{itemize}
 \end{columns}
+\end{frame}
+
+\begin{frame}[shrink=5]{Promotion Gate Funnel}
+\centering
+\resizebox{0.96\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.52cm and 0.68cm]
+  \node[ilabbox,minimum width=2.35cm] (candidate) {candidate run\\snapshot};
+  \node[ilabbox,right=of candidate,minimum width=2.35cm] (contract) {feature contract\\smoke load};
+  \node[ilabbox,right=of contract,minimum width=2.35cm] (quality) {quality gates\\threshold policy};
+  \node[ilabbox,right=of quality,minimum width=2.35cm] (compare) {same-window\\non-regression};
+  \node[ilabbox,right=of compare,minimum width=2.35cm,fill=ILABOrange!12,draw=ILABOrange] (pointer) {atomic\\production pointer};
+  \node[ilabbox,right=of pointer,minimum width=2.30cm,fill=ILABTeal!10,draw=ILABTeal] (serve) {FastAPI + Vite\\reload surface};
+  \draw[ilabflow] (candidate) -- (contract);
+  \draw[ilabflow] (contract) -- (quality);
+  \draw[ilabflow] (quality) -- (compare);
+  \draw[ilabflow] (compare) -- (pointer);
+  \draw[ilabflow] (pointer) -- (serve);
+\end{tikzpicture}
+}
+\tightsep
+\begin{center}
+\chip{Fail closed}
+\hspace{0.45em}
+\chip{Status recorded}
+\hspace{0.45em}
+\chip{Collectors continue}
+\hspace{0.45em}
+\chip{Serving pointer stays authoritative}
+\end{center}
+\tightsep
+\begin{block}{Operational reading}
+\small The funnel separates candidate quality from serving safety: a failed promotion does not stop BSG collection, app health, or the previous production model.
+\end{block}
 \end{frame}
 
 \begin{frame}[shrink=4]{BSG Smoke And Artifact Compatibility}
