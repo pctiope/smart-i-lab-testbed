@@ -78,6 +78,7 @@ run_silver_to_gold          = _s2g.run_silver_to_gold
 API_BASE_URL_ENV = "SMART_ILAB_BASE_URL"
 API_KEY_ENV = "SMART_ILAB_API_KEY"
 FULL_HISTORY_START = datetime(2000, 1, 1, tzinfo=timezone.utc)
+API_LOCAL_TIMEZONE = timezone(timedelta(hours=8), "Asia/Singapore")
 LOGGER = logging.getLogger("api_ingestion")
 
 
@@ -377,6 +378,14 @@ def check_needs_update(device_type: str, client: SmartILabAPIClient) -> tuple[bo
     return True, f"DB stale — DB latest: {db_ts_s}, API latest: {api_ts_s}"
 
 
+def _stored_timestamp_to_utc(ts_value: datetime) -> datetime:
+    """Convert stored API-local timestamps back to UTC for API query windows."""
+    parsed = pd.to_datetime(ts_value).to_pydatetime()
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=API_LOCAL_TIMEZONE)
+    return parsed.astimezone(timezone.utc)
+
+
 # =============================================================================
 # Ingest + bronze reinit
 # =============================================================================
@@ -407,9 +416,7 @@ def ingest_and_rebuild_bronze(
             fetch_from = now - timedelta(hours=lookback_hours)
             _log(f"[{device_type}] Bootstrap: fetching last {lookback_hours} h")
     else:
-        fetch_from = pd.to_datetime(latest_db).to_pydatetime() + timedelta(seconds=1)
-        if fetch_from.tzinfo is None:
-            fetch_from = fetch_from.replace(tzinfo=timezone.utc)
+        fetch_from = _stored_timestamp_to_utc(latest_db) + timedelta(seconds=1)
         _log(f"[{device_type}] Incremental fetch from {fetch_from.isoformat()}")
 
     if fetch_from >= now:
