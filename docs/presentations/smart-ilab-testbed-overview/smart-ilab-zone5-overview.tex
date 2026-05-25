@@ -17,14 +17,14 @@
 \textbf{What is reviewed}
 \begin{itemize}
   \item A Zone 5-only pipeline for occupancy probability, live evidence, and model promotion.
-  \item Source, label, feature, model, validation, serving, and deployment contracts.
+  \item Source, label, feature, model, validation, performance, serving, and deployment contracts.
   \item Runtime boundaries between collectors, trainer, promoter, FastAPI app, and UI.
 \end{itemize}
 
 \column{0.48\textwidth}
 \textbf{What is intentionally excluded}
 \begin{itemize}
-  \item Populated environment values, camera URLs, API keys, live logs, and generated run metrics.
+  \item Populated environment values, camera URLs, API keys, live logs, model binaries, and untracked artifacts.
   \item Runtime data/model artifacts under \code{data/}, \code{model/}, and \code{logs/}.
   \item Any claim that dashboard health alone proves a candidate model is promotable.
 \end{itemize}
@@ -35,7 +35,7 @@
 \hspace{0.4em}
 \chip{No secrets}
 \hspace{0.4em}
-\chip{No snapshot metrics}
+\chip{Production metrics}
 \hspace{0.4em}
 \chip{Operational gates}
 \end{center}
@@ -371,7 +371,7 @@ Time & Hour/day-of-week cycles & Deterministic cyclic features from timestamp. \
 \end{center}
 \tightsep
 \begin{block}{Chart scope}
-\small This is a structural chart only: it names contracts and ownership boundaries without embedding live row counts, logs, or generated metrics.
+\small This is a structural chart only: it names contracts and ownership boundaries without embedding live logs or untracked artifacts.
 \end{block}
 \end{frame}
 
@@ -570,8 +570,8 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
 \end{itemize}
 \end{columns}
 \tightsep
-\begin{block}{No generated results}
-\small This review names the loop and gates but does not embed current run IDs or metric values.
+\begin{block}{Current production metrics included}
+\small This review includes the promoted \code{20260524T020721Z_2639c699} run, with detailed metrics tracked in \smallpath{docs/performance/zone5-production-run-20260524T020721Z.md}.
 \end{block}
 \end{frame}
 
@@ -636,6 +636,71 @@ Classifier & Dense layer, activation, dropout, final single-logit output. \\
 \hspace{0.45em}
 \chip{Recorded split policy}
 \end{center}
+\end{frame}
+
+\begin{frame}[shrink=6]{Current Production AUCs}
+\scriptsize
+\begin{block}{Promoted run}
+\small \code{20260524T020721Z_2639c699}: \code{zone5_mmwave_recency_v1}, 22 channels, 90-row / 15-minute lookback, 3 rolling-calendar CV folds, and a May 23, 2026 blind test.
+\end{block}
+\tightsep
+\renewcommand{\arraystretch}{1.08}
+\begin{tabularx}{\textwidth}{@{}lccX@{}}
+\toprule
+\textbf{Evaluation window} & \textbf{PR-AUC} & \textbf{ROC-AUC} & \textbf{Evidence note} \\
+\midrule
+Pre-test / training-window evaluation & 0.8625 & 0.9839 & 40,062 windows before the blind-test day. \\
+Blind test, May 23, 2026 & 0.7334 & 0.9230 & 8,277 windows held out from CV folds. \\
+CV fold 1 validation & 0.0799 & 0.0966 & Validates May 20 after training on May 19. \\
+CV fold 2 validation & 0.8459 & 0.9676 & Validates May 21 after training through May 20. \\
+CV fold 3 validation & 0.9364 & 0.9821 & Validates May 22 after training through May 21. \\
+Mean CV PR-AUC & 0.6183 $\pm$ 0.3876 & n/a & Aggregate stored for PR-AUC; mean ROC-AUC is not stored. \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+\tightsep
+\begin{center}
+\chip{Source metrics JSON}
+\hspace{0.35em}
+\chip{Manifest-verified}
+\hspace{0.35em}
+\chip{No model artifacts tracked}
+\end{center}
+\end{frame}
+
+\begin{frame}[shrink=6]{Calibration And Class Balance}
+\tiny
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}lrrrrcc@{}}
+\toprule
+\textbf{Window} & \textbf{Brier} & \textbf{BCE} & \textbf{Windows} & \textbf{Pos/neg windows} & \textbf{Pos. rate} & \textbf{Mean p} \\
+\midrule
+Pre-test & 0.0419 & 0.1438 & 40,062 & 4,735 / 35,327 & 11.82\% & 0.1630 \\
+Blind test & 0.0934 & 0.4475 & 8,277 & 1,806 / 6,471 & 21.82\% & 0.2814 \\
+CV fold 1 & 0.0800 & 1.2912 & 8,483 & 678 / 7,805 & 7.99\% & 0.0029 \\
+CV fold 2 & 0.0585 & 0.1998 & 8,551 & 1,643 / 6,908 & 19.21\% & 0.1734 \\
+CV fold 3 & 0.0683 & 0.2891 & 8,550 & 2,154 / 6,396 & 25.19\% & 0.3293 \\
+\bottomrule
+\end{tabular}
+\tightsep
+\begin{columns}[T,onlytextwidth]
+\column{0.48\textwidth}
+\textbf{Split-level buckets/events}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Split} & \textbf{Pos. buckets} & \textbf{Neg. buckets} & \textbf{Pos. events} \\
+\midrule
+Pre-test & 4,735 & 35,533 & 207 \\
+Blind test & 1,806 & 6,560 & 262 \\
+\bottomrule
+\end{tabular}
+
+\column{0.48\textwidth}
+\begin{block}{Confusion matrix limitation}
+\scriptsize The deployed artifact is threshold-free and no operating threshold is stored, so TP/FP/TN/FN are intentionally not reported.
+\end{block}
+\end{columns}
+\renewcommand{\arraystretch}{1.0}
 \end{frame}
 
 \begin{frame}[shrink=4]{Promotion Gates}
@@ -910,6 +975,7 @@ BSG retrain wrapper & \pathref{run_bsg_trainer.sh}, \pathref{bsg_retrain_once.py
 Feature and target contract & \pathref{zone5_cv_time_features_package/zone5/feature_contract.py} \\
 Model training & \pathref{zone5_cv_time_features_package/zone5/training.py} \\
 Promotion & \pathref{zone5_cv_time_features_package/zone5/promote_model.py} \\
+Current production metrics & \pathref{docs/performance/zone5-production-run-20260524T020721Z.md} \\
 Serving endpoints & \pathref{zone5_cv_time_features_package/web_app/main.py} \\
 Deployment boundary & \pathref{compose.zone5-bsg.yaml}, \pathref{zone5_cv_time_features_package/systemd/user/} \\
 \bottomrule
