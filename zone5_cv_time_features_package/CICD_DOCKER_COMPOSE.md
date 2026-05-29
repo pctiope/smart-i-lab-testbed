@@ -165,6 +165,23 @@ producing an inference probability.
 curl -fsS http://127.0.0.1:8005/api/current
 ```
 
+For staging versus production comparisons, check both backend ports from the
+server or VPN path:
+
+```bash
+curl --noproxy '*' -fsS http://192.168.10.17:8005/api/health
+curl --noproxy '*' -fsS http://192.168.10.17:8000/api/health
+curl --noproxy '*' -fsS http://192.168.10.17:8005/api/current
+curl --noproxy '*' -fsS http://192.168.10.17:8000/api/current
+```
+
+The expected model-alignment check is
+`inference.model_run_id == 20260524T020721Z_2639c699` on both `8005`
+staging and `8000` production after that run is installed in the staging model
+root. Staging `/api/current` should report `timestamp`, `reference_time`,
+`ground_truth_timestamp`, and `sensor_context.window_end` on the same Zone 5
+local timeline, `Asia/Manila` (`UTC+08:00`), as naive ISO strings.
+
 The app may report that `model/production_run.txt` is missing until enough real
 data exists and the server-side trainer/promoter ops commands create the
 production pointer. If `/api/current` reports

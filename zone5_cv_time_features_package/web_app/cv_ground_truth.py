@@ -10,6 +10,7 @@ import pandas as pd
 
 from zone5 import csv_size_guard
 from zone5.feature_contract import SAMPLE_INTERVAL_PANDAS_FREQ
+from zone5.local_time import to_zone5_local_naive_timestamp, zone5_local_now
 
 
 @dataclass
@@ -41,13 +42,9 @@ def _json_safe_float(value: Any) -> float | int | None:
 
 
 def _to_naive_minute(value: Any) -> pd.Timestamp | None:
-    if value is None:
-        return None
-    ts = pd.Timestamp(value)
+    ts = to_zone5_local_naive_timestamp(value)
     if pd.isna(ts):
         return None
-    if ts.tzinfo is not None:
-        ts = ts.tz_convert(None)
     return ts.floor(SAMPLE_INTERVAL_PANDAS_FREQ)
 
 
@@ -114,11 +111,13 @@ class CvGroundTruthTailer:
         if missing:
             raise ValueError(f"missing required columns: {missing}")
         cleaned = frame[required].copy()
-        cleaned["timestamp"] = pd.to_datetime(cleaned["timestamp"], errors="coerce")
+        cleaned["timestamp"] = cleaned["timestamp"].map(to_zone5_local_naive_timestamp)
         cleaned["occupancy_count"] = pd.to_numeric(cleaned["occupancy_count"], errors="coerce")
         cleaned["cv_is_occupied"] = pd.to_numeric(cleaned["cv_is_occupied"], errors="coerce")
         cleaned = cleaned.dropna(subset=required)
-        cleaned["timestamp"] = cleaned["timestamp"].dt.floor(SAMPLE_INTERVAL_PANDAS_FREQ)
+        cleaned["timestamp"] = pd.to_datetime(cleaned["timestamp"], errors="coerce").dt.floor(
+            SAMPLE_INTERVAL_PANDAS_FREQ
+        )
         cleaned["cv_is_occupied"] = cleaned["cv_is_occupied"].round().astype(int)
         cleaned = cleaned.sort_values("timestamp").drop_duplicates("timestamp", keep="last")
         return cleaned.reset_index(drop=True)
@@ -127,7 +126,9 @@ class CvGroundTruthTailer:
         frame = self._load_if_needed()
         if frame is None or frame.empty:
             return GroundTruthSnapshot()
-        ref_ts = _to_naive_minute(reference_time) if reference_time is not None else _to_naive_minute(pd.Timestamp.now())
+        ref_ts = _to_naive_minute(reference_time) if reference_time is not None else zone5_local_now(
+            SAMPLE_INTERVAL_PANDAS_FREQ
+        )
         if ref_ts is None:
             eligible = frame
         else:

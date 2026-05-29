@@ -15,6 +15,7 @@ from zone5.feature_contract import (
     ZONE_NUM,
     floor_timestamp_series_to_sample,
 )
+from zone5.local_time import to_zone5_local_naive_timestamp
 
 
 BASE_ZONE_5_FEATURE_COLUMNS = [
@@ -47,17 +48,7 @@ def default_sen55_csv(package_root: Path, data_dir: Path) -> Path:
 
 
 def to_local_naive_timestamp(value: Any) -> pd.Timestamp:
-    if value is None or pd.isna(value):
-        return pd.NaT
-    try:
-        timestamp = pd.Timestamp(value)
-    except (TypeError, ValueError):
-        return pd.NaT
-    if pd.isna(timestamp):
-        return pd.NaT
-    if timestamp.tzinfo is not None:
-        return timestamp.tz_convert("Asia/Manila").tz_localize(None)
-    return timestamp.tz_localize(None) if getattr(timestamp, "tz", None) is not None else timestamp
+    return to_zone5_local_naive_timestamp(value)
 
 
 def normalize_timestamp_column(frame: pd.DataFrame, source_label: str) -> pd.DataFrame:

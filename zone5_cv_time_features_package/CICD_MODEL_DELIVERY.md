@@ -149,6 +149,27 @@ curl --noproxy '*' -fsS http://192.168.10.17:8000/api/health
 curl --noproxy '*' -fsS http://192.168.10.17:8015/api/health
 ```
 
+When staging must match the current production model, install the production run
+under the staging model root and atomically set:
+
+```text
+~/smart-i-lab-testbed-compose/zone5_cv_time_features_package/model/production_run.txt
+  -> model/runs/20260524T020721Z_2639c699
+```
+
+Then rebuild/recreate staging `live-app` from
+`~/smart-i-lab-testbed-compose/compose.zone5-bsg.yaml` and verify both backend
+health endpoints report:
+
+```text
+inference.model_run_id == 20260524T020721Z_2639c699
+```
+
+Also check `/api/current` on `8000` and `8005`; neither should report live
+inference errors, and the staging `timestamp`, `reference_time`,
+`ground_truth_timestamp`, and `sensor_context.window_end` fields should all be
+Zone 5 local naive ISO strings.
+
 ## Automated Retraining Cadence
 
 Default policy:

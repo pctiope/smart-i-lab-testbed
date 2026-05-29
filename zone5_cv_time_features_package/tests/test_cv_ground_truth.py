@@ -12,7 +12,7 @@ import sys
 import time
 import unittest
 from unittest import mock
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +26,7 @@ from zone5 import model as training
 from zone5 import collect_training_data
 from zone5 import csv_size_guard
 from zone5 import feature_builder
+from zone5 import local_time
 from zone5 import occupancy_mqtt_aggregator
 from zone5 import promote_model
 from zone5 import retrain_once
@@ -908,6 +909,90 @@ class LiveAppendAndWebFeatureTests(unittest.TestCase):
         for col in training.RAW_FEATURE_COLUMNS:
             row[col] = value
         return row
+
+    def test_zone5_local_time_converts_aware_timestamp_to_manila_naive(self) -> None:
+        timestamp = local_time.to_zone5_local_naive_timestamp("2026-05-06T02:00:30Z")
+
+        self.assertEqual(timestamp, pd.Timestamp("2026-05-06 10:00:30"))
+        self.assertIsNone(timestamp.tzinfo)
+
+    def test_cv_ground_truth_uses_zone5_local_time_for_default_reference(self) -> None:
+        root = fresh_test_dir("cv_ground_truth_local_now")
+        csv_path = root / "cv_occupancy_zone5_10sec.csv"
+        pd.DataFrame(
+            {
+                "timestamp": ["2026-05-06 09:59:50", "2026-05-06 10:00:20"],
+                "occupancy_count": [1, 2],
+                "cv_is_occupied": [1, 1],
+            }
+        ).to_csv(csv_path, index=False)
+
+        tailer = CvGroundTruthTailer(csv_path)
+        with mock.patch("web_app.cv_ground_truth.zone5_local_now", return_value=pd.Timestamp("2026-05-06 10:00:30")):
+            latest = tailer.latest()
+            status = tailer.status()
+
+        self.assertEqual(latest.timestamp, "2026-05-06T10:00:20")
+        self.assertEqual(latest.count, 2.0)
+        self.assertEqual(status["latest"]["ground_truth_timestamp"], "2026-05-06T10:00:20")
+
+    def test_cv_ground_truth_reference_time_converts_aware_timestamp_to_local_naive(self) -> None:
+        root = fresh_test_dir("cv_ground_truth_aware_reference")
+        csv_path = root / "cv_occupancy_zone5_10sec.csv"
+        pd.DataFrame(
+            {
+                "timestamp": ["2026-05-06 10:00:20"],
+                "occupancy_count": [3],
+                "cv_is_occupied": [1],
+            }
+        ).to_csv(csv_path, index=False)
+
+        latest = CvGroundTruthTailer(csv_path).latest("2026-05-06T02:00:30Z")
+
+        self.assertEqual(latest.timestamp, "2026-05-06T10:00:20")
+        self.assertEqual(latest.count, 3.0)
+        self.assertAlmostEqual(float(latest.age_minutes or 0), 0.167, places=3)
+
+    def test_live_air1_reference_time_uses_zone5_local_clock_when_process_tz_is_utc(self) -> None:
+        old_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "UTC"
+        if hasattr(time, "tzset"):
+            time.tzset()
+        self.addCleanup(self._restore_tz, old_tz)
+
+        frame = pd.DataFrame({"timestamp": pd.date_range("2026-05-06 10:00:50", periods=3, freq="10s")})
+        for col in training.RAW_FEATURE_COLUMNS:
+            frame[col] = 1.0
+
+        source = object.__new__(LiveAir1DataSource)
+        source._zone_5_source_devices = {"air1": ["dummy"]}
+        source._csv_training = argparse.Namespace(
+            sample_floor=lambda dt: pd.Timestamp(dt).floor(training.SAMPLE_INTERVAL_PANDAS_FREQ).to_pydatetime(),
+            LOCAL_OFFSET=timedelta(hours=8),
+            SAMPLE_INTERVAL_SECONDS=training.SAMPLE_INTERVAL_SECONDS,
+        )
+        source.lookback_safety_minutes = 1
+        source.slack_rows = 0
+        source.cache_enabled = False
+        source._cache = None
+        source._fetch_window = lambda _time_start, _time_end: frame
+
+        with mock.patch("web_app.data_source.datetime") as fake_datetime:
+            fake_datetime.now.return_value = datetime(2026, 5, 6, 2, 1, 23, tzinfo=timezone.utc)
+            window, reference_time = source.get_latest_window(3)
+
+        self.assertEqual(pd.Timestamp(reference_time), pd.Timestamp("2026-05-06 10:01:20"))
+        self.assertEqual(pd.Timestamp(window["timestamp"].iloc[-1]), pd.Timestamp("2026-05-06 10:01:10"))
+        self.assertIsNone(pd.Timestamp(reference_time).tzinfo)
+
+    @staticmethod
+    def _restore_tz(old_tz: str | None) -> None:
+        if old_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old_tz
+        if hasattr(time, "tzset"):
+            time.tzset()
 
     def test_sensor_context_summarizes_live_prediction_window(self) -> None:
         timestamps = pd.date_range("2026-05-23 10:00:00", periods=90, freq="10s")

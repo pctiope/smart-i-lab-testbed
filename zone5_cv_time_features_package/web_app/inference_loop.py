@@ -18,6 +18,7 @@ if str(WORKSPACE_DIR) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_DIR))
 
 from zone5 import model as training  # noqa: E402
+from zone5.local_time import zone5_local_now  # noqa: E402
 
 from web_app.cv_ground_truth import CvGroundTruthTailer  # noqa: E402
 from web_app.data_source import DataSource  # noqa: E402
@@ -341,14 +342,15 @@ class InferenceLoop:
             error_text = message if message.startswith("LIVE DATA DEGRADED") else f"{type(exc).__name__}: {message}"
             self._last_error = error_text
             self._last_warning = None
+            event_ts = zone5_local_now(training.SAMPLE_INTERVAL_PANDAS_FREQ)
             event = TickEvent(
-                timestamp=pd.Timestamp.now(tz=None).isoformat(),
+                timestamp=event_ts.isoformat(),
                 probability=float("nan"),
                 occupied=None,
                 model_run_id=self.state.run_id,
                 reference_time="",
                 source_label=self.data_source.label,
-                **self._ground_truth_fields(pd.Timestamp.now(tz=None)),
+                **self._ground_truth_fields(event_ts),
                 warning=None,
                 error=error_text,
             )

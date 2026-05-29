@@ -104,6 +104,12 @@ that the service is reachable. `/api/current.probability` proves the live app
 is producing an inference probability. Check `/api/current` and confirm the
 JSON has a numeric `probability`.
 
+Live inference timestamps use the Zone 5 local timeline, `Asia/Manila`
+(`UTC+08:00`), as naive ISO strings for dashboard compatibility. In Docker,
+`timestamp`, `reference_time`, `ground_truth_timestamp`, and
+`sensor_context.window_end` should therefore be compared as local wall-clock
+values, not as container-timezone values.
+
 If `/api/current` reports `error` as
 `LIVE DATA DEGRADED: core sensor coverage below gate`, live prediction is
 blocked by core sensor coverage. The current gates require at least `0.80`

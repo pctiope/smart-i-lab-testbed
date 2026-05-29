@@ -410,20 +410,20 @@ const MAX_ENV_POINTS = 60;
 
 const SENSOR_PLOTS = {
     air1: {
-        co2:  { el: "air1-graph-co2",  label: "CO₂ ppm",  color: "#4DD9AC", unit: "ppm", key: "co2" },
-        temp: { el: "air1-graph-temp", label: "Temp °C",   color: "#FFBA4D", unit: "°C",  key: "temperature" },
+        co2:  { el: "air1-graph-co2",  label: "CO₂ ppm",  color: "#4DD9AC", unit: "ppm", key: "co2",         range: [150, 300] },
+        temp: { el: "air1-graph-temp", label: "Temp °C",   color: "#FFBA4D", unit: "°C",  key: "temperature", range: [28, 36] },
     },
     msr2: {
-        co2:  { el: "msr2-graph-co2",  label: "CO₂ ppm",  color: "#4DD9AC", unit: "ppm", key: "co2" },
-        temp: { el: "msr2-graph-temp", label: "Temp °C",   color: "#FFBA4D", unit: "°C",  key: "temperature" },
+        co2:  { el: "msr2-graph-co2",  label: "CO₂ ppm",  color: "#4DD9AC", unit: "ppm", key: "co2",         range: [250, 450] },
+        temp: { el: "msr2-graph-temp", label: "Temp °C",   color: "#FFBA4D", unit: "°C",  key: "temperature", range: [40, 55] },
     },
     sensibo: {
-        temp: { el: "sensibo-graph-temp", label: "Temp °C", color: "#FFBA4D", unit: "°C", key: "temperature" },
-        humidity: { el: "sensibo-graph-humidity", label: "Humidity %", color: "#84D5A1", unit: "%", key: "humidity" },
+        temp: { el: "sensibo-graph-temp", label: "Temp °C", color: "#FFBA4D", unit: "°C", key: "temperature", range: [24, 32] },
+        humidity: { el: "sensibo-graph-humidity", label: "Humidity %", color: "#84D5A1", unit: "%", key: "humidity", range: [70, 90] },
     },
     ag: {
-        co2:  { el: "ag-graph-co2",  label: "CO₂ ppm",  color: "#4DD9AC", unit: "ppm", key: "co2" },
-        temp: { el: "ag-graph-temp", label: "Temp °C",   color: "#FFBA4D", unit: "°C",  key: "temperature" },
+        co2:  { el: "ag-graph-co2",  label: "CO₂ ppm",  color: "#4DD9AC", unit: "ppm", key: "co2",         range: [350, 650] },
+        temp: { el: "ag-graph-temp", label: "Temp °C",   color: "#FFBA4D", unit: "°C",  key: "temperature", range: [28, 36] },
     },
 };
 
@@ -439,12 +439,12 @@ const SPARK_FONT = '"Google Sans Mono", "JetBrains Mono", ui-monospace, monospac
 const SPARK_GRID = "#3F494460";
 const SPARK_OUTLINE = "#889490";
 
-function makeSparkLayout(unit) {
+function makeSparkLayout(cfg) {
     return {
         paper_bgcolor: "rgba(0,0,0,0)",
         plot_bgcolor:  "rgba(0,0,0,0)",
         font: { color: SPARK_OUTLINE, family: SPARK_FONT, size: 8 },
-        margin: { l: 32, r: 4, t: 4, b: 20 },
+        margin: { l: 34, r: 4, t: 4, b: 20 },
         xaxis: {
             gridcolor: SPARK_GRID, zerolinecolor: SPARK_GRID, color: SPARK_OUTLINE,
             tickfont: { size: 7 }, showgrid: false, tickformat: "%H:%M",
@@ -452,19 +452,18 @@ function makeSparkLayout(unit) {
         yaxis: {
             gridcolor: SPARK_GRID, zerolinecolor: SPARK_GRID, color: SPARK_OUTLINE,
             tickfont: { size: 7 }, showgrid: true, gridwidth: 0.5,
+            autorange: false, fixedrange: true, range: cfg.range,
         },
         showlegend: false,
     };
 }
 
-function makeSparkTrace(color) {
+function makeSparkTrace(color, unit) {
     return {
         x: [], y: [],
         type: "scatter", mode: "lines",
         line: { color, width: 1.5, shape: "spline", smoothing: 0.4 },
-        fill: "tozeroy",
-        fillcolor: `${color}1A`,
-        hovertemplate: "%{x}<br><b>%{y:.1f}</b><extra></extra>",
+        hovertemplate: `%{x}<br><b>%{y:.1f} ${unit}</b><extra></extra>`,
     };
 }
 
@@ -477,7 +476,7 @@ function initSparkPlots() {
         for (const [, cfg] of Object.entries(metrics)) {
             const el = document.getElementById(cfg.el);
             if (!el) continue;
-            Plotly.newPlot(el, [makeSparkTrace(cfg.color)], makeSparkLayout(cfg.unit), {
+            Plotly.newPlot(el, [makeSparkTrace(cfg.color, cfg.unit)], makeSparkLayout(cfg), {
                 responsive: true, displayModeBar: false, staticPlot: false,
             });
         }
@@ -493,7 +492,7 @@ function updateSparkPlot(dev, metricKey, ts, value) {
     if (hist.xs.length > MAX_ENV_POINTS) { hist.xs.shift(); hist.ys.shift(); }
     const el = document.getElementById(cfg.el);
     if (!el || !el._fullLayout) return;
-    Plotly.react(el, [{ ...makeSparkTrace(cfg.color), x: hist.xs, y: hist.ys }], makeSparkLayout(cfg.unit));
+    Plotly.react(el, [{ ...makeSparkTrace(cfg.color, cfg.unit), x: hist.xs, y: hist.ys }], makeSparkLayout(cfg));
 }
 
 let envPanelOpen = false;

@@ -165,8 +165,9 @@ class LiveAir1DataSource:
     once. Warm path fetches a small overlap window (`overlap_minutes` back to
     now) and merges. Disable with `cache_enabled=False`.
 
-    Returns wall-clock as the reference_time so `predict_zone_5_probability`
-    can detect when the API stops returning fresh rows.
+    Returns Zone 5 local wall-clock as the reference_time so
+    `predict_zone_5_probability` can detect when the API stops returning fresh
+    rows without depending on the container OS timezone.
     """
 
     def __init__(
@@ -350,7 +351,7 @@ class LiveAir1DataSource:
         if len(frame) > take:
             frame = frame.tail(take).reset_index(drop=True)
 
-        return frame, pd.Timestamp.now()
+        return frame, pd.Timestamp(time_end_local)
 
 
 def build_data_source_from_env(env: dict[str, str]) -> DataSource:

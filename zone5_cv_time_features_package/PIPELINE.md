@@ -587,6 +587,11 @@ The live data source uses:
 - package-local SEN55 table
 - engineered time features
 
+Live feature timestamps, CV ground-truth timestamps, and API event timestamps
+are normalized to the Zone 5 local timeline, `Asia/Manila` (`UTC+08:00`), and
+returned as naive ISO strings for the dashboard. This keeps Docker staging from
+drifting behind when the container OS timezone is UTC.
+
 Before the first successful promotion, the app stays running but reports that
 the production pointer is missing. After promotion writes
 `model/production_run.txt`, the app reloads the promoted model on its pointer
