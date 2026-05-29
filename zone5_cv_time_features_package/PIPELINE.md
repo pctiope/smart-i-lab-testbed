@@ -89,6 +89,34 @@ model/production_run.txt
   -> occupancy probability on http://127.0.0.1:8000/
 ```
 
+## Live Inference Health
+
+Service reachability and inference output are different signals.
+`/api/health` with `ok=true`, the dashboard page, and video availability prove
+that the web app is reachable. `/api/current.probability` proves the live
+inference path is producing a probability. Use `/api/current` for the live
+prediction status and inspect `error` when `probability` is missing.
+
+The diagnosed degraded-data failure mode is:
+
+```text
+LIVE DATA DEGRADED: core sensor coverage below gate
+```
+
+That means the core input coverage gate failed. AIR-1 and power fields require
+at least `0.80` coverage, and `mmwave_s5` requires at least `0.95` coverage.
+`sen55-missing` is not the blocker by itself because SEN55 is optional. The
+core AIR-1, smart plug, and mmWave fields gate live prediction.
+
+Operator flow:
+
+1. Check `/api/current`.
+2. Inspect the `error` field.
+3. Verify upstream Smart I-Lab API history for the Zone 5 AIR-1, smart plug,
+   and mmWave devices.
+4. If upstream history is healthy but the running app cache remains stale,
+   restart only the live app service.
+
 ## Trigger Summary
 
 | Trigger | Owner | Result | Notes |

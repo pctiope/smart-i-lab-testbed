@@ -31,6 +31,7 @@ _bronze_table = _storage._bronze_table
 _silver_table = _storage._silver_table
 _table_exists = _storage._table_exists
 _register_df  = _storage._register_df
+_align_table_schema_to_dataframe = _storage._align_table_schema_to_dataframe
 
 
 # =============================================================================
@@ -138,6 +139,7 @@ def _push_to_silver(df: pd.DataFrame, device_type: str, rebuild: bool):
             _db.execute(f"CREATE TABLE {quoted_silver} AS SELECT * FROM {_q(temp)}")
             print(f"  [silver] Created {silver_name}: {len(df):,} rows")
         else:
+            _align_table_schema_to_dataframe(silver_name, df)
             # Upsert: insert only rows not already present by timestamp
             has_device_id = "device_id" in df.columns
             if has_device_id:
@@ -223,7 +225,7 @@ def main():
     for device_type in device_types:
         silver_name = _silver_table(device_type)
         if _table_exists(silver_name):
-            count = _db.execute(f'SELECT COUNT(*) FROM "{silver_name}"').fetchone()[0]
+            count = _db.execute(f"SELECT COUNT(*) FROM {_q(silver_name)}").fetchone()[0]
             print(f"  {silver_name:30s}  {count:>10,} rows")
         else:
             print(f"  {silver_name:30s}  (not built)")

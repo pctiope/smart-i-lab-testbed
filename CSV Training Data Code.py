@@ -129,6 +129,11 @@ def _q(name: str) -> str:
     return ".".join('"' + p.replace('"', '""') + '"' for p in parts)
 
 
+def _q_identifier(name: str) -> str:
+    """Quote a single DuckDB identifier component such as a column name."""
+    return '"' + str(name).replace('"', '""') + '"'
+
+
 def _local_glob(device_type: str) -> str:
     return str(LOCAL_DATA_PATH / device_type / "**" / "*.parquet")
 
@@ -227,6 +232,55 @@ def _register_df(view_name: str, df: pd.DataFrame):
     except Exception:
         pass
     _db.register(view_name, df)
+
+
+def _duckdb_type_for_pandas_series(series: pd.Series) -> str:
+    dtype = series.dtype
+    if pd.api.types.is_datetime64_any_dtype(dtype):
+        return "TIMESTAMP"
+    if pd.api.types.is_bool_dtype(dtype):
+        return "BOOLEAN"
+    if pd.api.types.is_integer_dtype(dtype):
+        return "BIGINT"
+    if pd.api.types.is_float_dtype(dtype):
+        return "DOUBLE"
+    return "VARCHAR"
+
+
+def _table_column_names(table_name: str) -> set[str]:
+    if "." in table_name:
+        schema, tbl = table_name.split(".", 1)
+        rows = _db.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = ? AND table_name = ?",
+            [schema, tbl],
+        ).fetchall()
+    else:
+        rows = _db.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = ?",
+            [table_name],
+        ).fetchall()
+    return {column_name for (column_name,) in rows}
+
+
+def _align_table_schema_to_dataframe(table_name: str, df: pd.DataFrame) -> list[str]:
+    """Add missing target-table columns so DuckDB INSERT ... BY NAME can proceed."""
+    if not _table_exists(table_name):
+        return []
+
+    existing_columns = _table_column_names(table_name)
+    added_columns: list[str] = []
+    for column_name in df.columns:
+        if column_name in existing_columns:
+            continue
+        duckdb_type = _duckdb_type_for_pandas_series(df[column_name])
+        _db.execute(
+            f"ALTER TABLE {_q(table_name)} "
+            f"ADD COLUMN {_q_identifier(column_name)} {duckdb_type}"
+        )
+        existing_columns.add(column_name)
+        added_columns.append(column_name)
+    return added_columns
 
 
 # =============================================================================

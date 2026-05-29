@@ -246,6 +246,31 @@ Bash:
 curl -fsS http://localhost:8000/api/health
 ```
 
+Check live inference output separately. `/api/health` with `ok=true`, the page,
+and video availability prove service reachability; `/api/current.probability`
+proves the live app is producing an inference probability.
+
+PowerShell:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/current
+```
+
+Bash:
+
+```bash
+curl -fsS http://localhost:8000/api/current
+```
+
+If `/api/current` reports `LIVE DATA DEGRADED: core sensor coverage below gate`,
+the core coverage gate failed. AIR-1 and power fields require at least `0.80`
+coverage, and `mmwave_s5` requires at least `0.95` coverage. `sen55-missing` is
+not the blocker by itself because SEN55 is optional. The core AIR-1, smart
+plug, and mmWave fields gate live prediction. Inspect `/api/current.error`,
+verify upstream Smart I-Lab API history for the Zone 5 devices, and restart
+only `live-app` if upstream data is healthy but the running app cache remains
+stale.
+
 Check generated files on the host:
 
 PowerShell:

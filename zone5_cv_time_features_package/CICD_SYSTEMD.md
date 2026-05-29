@@ -171,8 +171,25 @@ Check the app once before automating deploys:
 curl -fsS http://127.0.0.1:8000/api/health
 ```
 
+`/api/health` with `ok=true`, the dashboard page, and video availability prove
+service reachability. They do not prove live inference output. Check
+`/api/current` as well; `/api/current.probability` proves the live app is
+producing an inference probability.
+
+```bash
+curl -fsS http://127.0.0.1:8000/api/current
+```
+
 The app may report that `model/production_run.txt` is missing until enough real
 data exists, training succeeds, and promotion creates the production pointer.
+If `/api/current` reports `LIVE DATA DEGRADED: core sensor coverage below gate`,
+the core coverage gate failed. AIR-1 and power fields require at least `0.80`
+coverage, and `mmwave_s5` requires at least `0.95` coverage. `sen55-missing` is
+not the blocker by itself because SEN55 is optional. The core AIR-1, smart
+plug, and mmWave fields gate live prediction. Inspect `/api/current.error`,
+verify upstream Smart I-Lab API history for the Zone 5 devices, and restart
+only the live app service if upstream data is healthy but the running app cache
+remains stale.
 
 ## 3. Add GitHub Actions CI
 

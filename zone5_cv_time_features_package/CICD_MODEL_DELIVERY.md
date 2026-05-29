@@ -121,6 +121,22 @@ The script checks:
 - staging backend and frontend proxy health on `8005` and `8016`
 - production backend and frontend proxy health on `8000` and `8015`
 
+These health endpoints prove service reachability, not necessarily live
+inference output. `/api/health` with `ok=true`, the dashboard page, and video
+availability show that the services are reachable. `/api/current.probability`
+shows that the live app is producing an inference probability. When validating
+model delivery or retraining, also check `/api/current` and inspect `error` if
+`probability` is missing.
+
+If `/api/current` reports `LIVE DATA DEGRADED: core sensor coverage below gate`,
+the live app rejected inference because core sensor coverage is too low. AIR-1
+and power fields require at least `0.80` coverage, and `mmwave_s5` requires at
+least `0.95` coverage. `sen55-missing` is not the blocker by itself because
+SEN55 is optional. The core AIR-1, smart plug, and mmWave fields gate live
+prediction. Verify upstream Smart I-Lab API history for the Zone 5 devices
+first; if the upstream history is healthy but the running app cache remains
+stale, restart only the live app service.
+
 The same checks can be run manually:
 
 ```bash

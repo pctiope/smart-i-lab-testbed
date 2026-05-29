@@ -96,6 +96,30 @@ Use [PIPELINE.md](PIPELINE.md) for the end-to-end pipeline map covering runtime
 services, generated files, training validation, bootstrap fallback, promotion,
 and inference.
 
+## Live Inference Health
+
+Treat service reachability and inference output as separate checks.
+`/api/health` with `ok=true`, the dashboard page, and video availability prove
+that the service is reachable. `/api/current.probability` proves the live app
+is producing an inference probability. Check `/api/current` and confirm the
+JSON has a numeric `probability`.
+
+If `/api/current` reports `error` as
+`LIVE DATA DEGRADED: core sensor coverage below gate`, live prediction is
+blocked by core sensor coverage. The current gates require at least `0.80`
+coverage for AIR-1 and power fields, and at least `0.95` coverage for
+`mmwave_s5`. `sen55-missing` is not the blocker by itself: SEN55 is optional.
+The core AIR-1, smart plug, and mmWave fields gate live prediction.
+
+Operator flow:
+
+1. Check `/api/current`.
+2. Inspect the `error` field.
+3. Verify upstream Smart I-Lab API history for the Zone 5 AIR-1, smart plug,
+   and mmWave devices.
+4. If upstream data is healthy but the running app cache remains stale, restart
+   only the live app service.
+
 On Ubuntu, make the first real run persistent immediately: start at
 `Ubuntu Server Start Here` in [DEPLOYMENT.md](DEPLOYMENT.md). That path installs
 the bundled user services from `systemd/user/` and starts them with

@@ -32,6 +32,7 @@ _silver_table = _storage._silver_table
 _gold_table = _storage._gold_table
 _table_exists = _storage._table_exists
 _register_df = _storage._register_df
+_align_table_schema_to_dataframe = _storage._align_table_schema_to_dataframe
 
 
 def preprocess_air1(df: pd.DataFrame) -> pd.DataFrame:
@@ -113,6 +114,7 @@ def _push_to_gold(df: pd.DataFrame, device_type: str, rebuild: bool):
             _db.execute(f"CREATE TABLE {quoted_gold} AS SELECT * FROM {_q(temp)}")
             print(f"  [gold] Created {gold_name}: {len(df):,} rows")
         else:
+            _align_table_schema_to_dataframe(gold_name, df)
             has_device_id = "device_id" in df.columns
             if has_device_id:
                 sql = (
