@@ -240,6 +240,8 @@ def _promote(args: argparse.Namespace) -> dict[str, Any]:
         cmd.append("--skip-smoke")
     if args.promote_skip_non_regression_smoke:
         cmd.append("--skip-non-regression-smoke")
+    if args.force_promote:
+        cmd.append("--force-promote")
 
     result = subprocess.run(cmd, cwd=PACKAGE_ROOT, text=True, capture_output=True, check=False)
     stdout = result.stdout.strip()
@@ -278,6 +280,7 @@ def _blind_test_positive_windows_by_lookback(
     cv_folds_policy: dict[str, Any],
     allow_degenerate_validation: bool,
     min_strict_date_coverage: float,
+    blind_test_date: str | None,
 ) -> dict[str, Any]:
     plan = training.select_cv_lookback_plan(
         frame,
@@ -286,6 +289,7 @@ def _blind_test_positive_windows_by_lookback(
         allow_degenerate_validation=allow_degenerate_validation,
         cv_folds_policy=cv_folds_policy,
         min_strict_date_coverage=min_strict_date_coverage,
+        blind_test_date=blind_test_date,
     )
     test_frame = plan["blind_splits"]["test"]
     evidence = training.blind_test_evidence_by_lookback(test_frame, plan["lookback_candidates"])
@@ -323,12 +327,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--allow-degenerate-validation", action="store_true")
     parser.add_argument("--bootstrap-fallback", choices=["auto", "always", "never"], default="auto")
     parser.add_argument("--cv-folds", choices=["auto", "1", "2", "3"], default="auto")
+    parser.add_argument(
+        "--blind-test-date",
+        default=None,
+        help=(
+            "Hold out exactly this local calendar date as blind test (YYYY-MM-DD) "
+            "and exclude later rows from training/evaluation."
+        ),
+    )
     promote_group = parser.add_mutually_exclusive_group()
     promote_group.add_argument("--promote", dest="promote", action="store_true", default=True)
     promote_group.add_argument("--no-promote", dest="promote", action="store_false")
     parser.add_argument("--production-pointer", type=Path, default=promote_model.DEFAULT_PRODUCTION_POINTER)
     parser.add_argument("--promote-skip-smoke", action="store_true")
     parser.add_argument("--promote-skip-non-regression-smoke", action="store_true")
+    parser.add_argument(
+        "--force-promote",
+        action="store_true",
+        help="Bypass existing-production comparison during promotion after candidate gates pass.",
+    )
     parser.add_argument(
         "--min-positive-windows",
         type=int,
@@ -398,6 +415,7 @@ def main() -> int:
                     cv_folds_policy=cv_policy,
                     allow_degenerate_validation=args.allow_degenerate_validation,
                     min_strict_date_coverage=args.min_strict_date_coverage,
+                    blind_test_date=args.blind_test_date,
                 )
                 evidence_failures = []
                 if int(preflight["max_positive_windows"]) < int(args.min_positive_windows):
@@ -444,6 +462,7 @@ def main() -> int:
                 cv_folds=int(cv_policy["cv_folds"]),
                 cv_folds_policy=cv_policy,
                 min_strict_date_coverage=args.min_strict_date_coverage,
+                blind_test_date=args.blind_test_date,
             )
             promotion = _promote(args) if args.promote else {"status": "disabled"}
             payload = {

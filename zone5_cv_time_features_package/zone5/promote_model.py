@@ -405,7 +405,7 @@ def _run_smoke(candidate_run: Path, production_pointer: Path, args: argparse.Nam
         "--max-test-log-loss",
         str(args.max_test_log_loss),
     ]
-    if args.skip_non_regression_smoke:
+    if args.skip_non_regression_smoke or args.force_promote:
         cmd.append("--skip-non-regression")
     print(f"Running smoke test: {' '.join(cmd)}")
     return subprocess.run(cmd, check=False).returncode
@@ -430,6 +430,15 @@ def parse_args() -> argparse.Namespace:
         "--skip-non-regression-smoke",
         action="store_true",
         help="Pass --skip-non-regression to smoke_test.py. Promotion still enforces CV-target comparison.",
+    )
+    parser.add_argument(
+        "--force-promote",
+        action="store_true",
+        default=os.environ.get("ZONE5_FORCE_PROMOTE", "").strip().lower() in {"1", "true", "yes", "on"},
+        help=(
+            "Bypass existing production model loading and non-regression comparison after candidate gates pass. "
+            "Use for intentional contract migrations where the old production artifact is no longer loadable."
+        ),
     )
     parser.add_argument(
         "--min-test-pr-auc",
@@ -500,7 +509,12 @@ def main() -> int:
     production_run = _resolve_production_path(production_pointer)
     production_payload: dict[str, Any] | None = None
     one_fold_reported_production_pr_auc: float | None = None
-    if production_run is not None:
+    if production_run is not None and args.force_promote:
+        print(
+            "INFO: --force-promote set; existing production loading and PR-AUC comparison "
+            "will be bypassed after candidate gates pass."
+        )
+    elif production_run is not None:
         try:
             production_payload = _load_run_payload(_resolve_run_dir(production_run))
         except Exception as exc:

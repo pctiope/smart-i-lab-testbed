@@ -125,11 +125,6 @@ function eventTimestampMs(event) {
     return Number.isFinite(ms) ? ms : null;
 }
 
-function mmwaveLookbackFraction(event) {
-    const value = Number(event?.sensor_context?.mmwave_s5_occupied_fraction);
-    return Number.isFinite(value) ? value : null;
-}
-
 function formatProbability(probability) {
     const p = Number(probability);
     if (!Number.isFinite(p)) return "--";
@@ -655,7 +650,6 @@ async function refreshEnv() {
 const M3_TERTIARY    = "#84D5A1";
 const M3_UNOCCUPIED   = "#ff4d3a";
 const M3_WARN        = "#FFB4AB";
-const M3_MMWAVE      = "#FFBA4D";
 
 function makeHistLayout(nowTs) {
     const gridCol = `${M3_OUTLINE_VAR}60`;
@@ -724,13 +718,6 @@ function initHistCharts() {
         showlegend: false,
     };
     const gtTrace2 = { ...gtTrace, fillcolor: `${M3_UNOCCUPIED}40` };
-    const mmwaveTrace = {
-        x: [], y: [],
-        type: "scatter", mode: "lines", name: "mmWave lookback",
-        line: { color: M3_MMWAVE, width: 1.7, dash: "dot", shape: "vh" },
-        hovertemplate: "%{x|%H:%M:%S}<br><b>mmWave lookback=%{y:.1%}</b><extra></extra>",
-        showlegend: false,
-    };
     const predTrace = {
         x: [], y: [],
         type: "scatter", mode: "lines", name: "raw prediction",
@@ -738,7 +725,7 @@ function initHistCharts() {
         hovertemplate: "%{x|%H:%M:%S}<br><b>raw p=%{y:.6f}</b><extra></extra>",
         showlegend: false,
     };
-    Plotly.newPlot(HIST_DIV, [gtTrace, gtTrace2, mmwaveTrace, predTrace], makeHistLayout(null), {
+    Plotly.newPlot(HIST_DIV, [gtTrace, gtTrace2, predTrace], makeHistLayout(null), {
         responsive: true, displayModeBar: false,
     });
 
@@ -776,8 +763,6 @@ async function refreshHistCharts() {
                 ? (ev.ground_truth_occupied === true ? 1 : 0)
                 : null
         );
-        const mmwaveYs  = predictionEvents.map(mmwaveLookbackFraction);
-
         // MSE: squared error between predicted probability and GT binary
         const mseYs     = predYs.map((p, i) =>
             gtYs[i] === null ? null : (p - gtYs[i]) ** 2
@@ -798,11 +783,6 @@ async function refreshHistCharts() {
                   line: { shape: "vh" },
                   fill: "tozeroy", fillcolor: `${M3_UNOCCUPIED}40`,
                   hovertemplate: "%{x|%H:%M:%S}<br><b>GT=%{y}</b><extra></extra>",
-                  showlegend: false },
-                // mmWave occupancy fraction across the exact prediction lookback window
-                { x: xs, y: mmwaveYs, type: "scatter", mode: "lines", name: "mmWave lookback",
-                  line: { color: M3_MMWAVE, width: 1.7, dash: "dot", shape: "vh" },
-                  hovertemplate: "%{x|%H:%M:%S}<br><b>mmWave lookback=%{y:.1%}</b><extra></extra>",
                   showlegend: false },
                 // Prediction probability line
                 { x: xs, y: predYs, type: "scatter", mode: "lines", name: "raw prediction",

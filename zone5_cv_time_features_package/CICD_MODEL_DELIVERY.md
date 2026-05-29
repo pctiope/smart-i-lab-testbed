@@ -37,6 +37,11 @@ model/runs/<run_id>/
   tables/metrics_zone_5.json
 ```
 
+The run metadata must use `model_contract_version:
+zone5_missingness_decoupled_v1`. The contract contains raw sensor columns plus
+deterministic time features only; mmWave recency columns from old
+`zone5_mmwave_recency_v1` artifacts are not supported by the current live app.
+
 The artifact must have a SHA-256 checksum. The web app server verifies the
 checksum, runs the Zone 5 smoke test, installs the run under
 `model/runs/<run_id>/`, then atomically writes:

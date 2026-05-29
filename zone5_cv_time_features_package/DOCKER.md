@@ -513,12 +513,18 @@ Train with custom hyperparameter budget:
 
 ```bash
 docker compose --profile ops run --rm trainer \
-  bash train_model.sh \
+  python -m zone5.training \
+  --csv data/zone5_training_cv.csv \
   --n-trials 20 \
   --max-epochs 10 \
   --optuna-jobs 1 \
-  --cv-folds 3
+  --cv-folds 3 \
+  --blind-test-date 2026-05-23
 ```
+
+The active artifact contract is `zone5_missingness_decoupled_v1`: raw sensor
+columns plus deterministic time features only. Do not train or deploy
+`zone5_mmwave_recency_v1` artifacts from older runs.
 
 Train without promotion:
 
@@ -545,6 +551,10 @@ docker compose --profile ops run --rm promoter \
   --min-positive-buckets 5 \
   --min-positive-events 1
 ```
+
+For an intentional contract migration where the old production model may no
+longer load, add `--force-promote`. The candidate must still load, smoke
+predict, and pass its blind-test evidence and finite metric gates.
 
 ## App Port Overrides
 

@@ -20,14 +20,12 @@ from zone5 import dataset as cv_dataset
 from zone5 import feature_builder
 from zone5.feature_contract import (
     FEATURE_COLUMNS,
-    MMWAVE_RECENCY_FEATURE_COLUMNS,
-    MMWAVE_RECENCY_FRACTION_WINDOWS_MINUTES,
-    MMWAVE_RECENCY_NO_PRIOR_MINUTES,
     MISSING_INDICATOR_COLUMNS,
     RAW_FEATURE_COLUMNS,
     SAMPLE_INTERVAL,
     SAMPLE_INTERVAL_PANDAS_FREQ,
     SAMPLE_INTERVAL_SECONDS,
+    TIME_FEATURE_COLUMNS,
 )
 
 
@@ -321,9 +319,7 @@ def _joined_frame_metadata(
         "target_column": cv_training.CV_TARGET_COLUMN,
         "model_feature_columns": FEATURE_COLUMNS,
         "raw_model_feature_columns": RAW_FEATURE_COLUMNS,
-        "engineered_mmwave_feature_columns": MMWAVE_RECENCY_FEATURE_COLUMNS,
-        "mmwave_recency_fraction_windows_minutes": MMWAVE_RECENCY_FRACTION_WINDOWS_MINUTES,
-        "mmwave_recency_no_prior_minutes": MMWAVE_RECENCY_NO_PRIOR_MINUTES,
+        "engineered_time_feature_columns": TIME_FEATURE_COLUMNS,
         "missing_indicator_columns": MISSING_INDICATOR_COLUMNS,
         "audit_columns_not_model_inputs": audit_columns,
         "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
@@ -498,6 +494,8 @@ def _promote_after_retrain(args: argparse.Namespace) -> dict[str, Any]:
         cmd.append("--skip-smoke")
     if args.promote_skip_non_regression_smoke:
         cmd.append("--skip-non-regression-smoke")
+    if getattr(args, "force_promote", False):
+        cmd.append("--force-promote")
 
     result = subprocess.run(
         cmd,
@@ -745,6 +743,7 @@ def live_append_training_data(args: argparse.Namespace) -> dict[str, Any]:
                         allow_degenerate_validation=args.retrain_allow_degenerate_validation,
                         cv_folds_policy=cv_folds_policy,
                         min_strict_date_coverage=args.min_strict_date_coverage,
+                        blind_test_date=args.retrain_blind_test_date,
                     )
                     evidence = training.blind_test_evidence_by_lookback(
                         plan["blind_splits"]["test"],
@@ -793,6 +792,7 @@ def live_append_training_data(args: argparse.Namespace) -> dict[str, Any]:
                     cv_folds=int(cv_folds_policy["cv_folds"]),
                     cv_folds_policy=cv_folds_policy,
                     min_strict_date_coverage=args.min_strict_date_coverage,
+                    blind_test_date=args.retrain_blind_test_date,
                 )
                 metadata["live_append"]["retrain_after_snapshot"] = {
                     "status": "ok",
@@ -999,6 +999,14 @@ def parse_args() -> argparse.Namespace:
         default=cv_dataset.STRICT_DATE_MIN_COVERAGE,
         help="Minimum fraction of a full 10-second day required for strict CV dates. Default: 0.75.",
     )
+    parser.add_argument(
+        "--retrain-blind-test-date",
+        default=None,
+        help=(
+            "Hold out exactly this local calendar date during live retraining (YYYY-MM-DD) "
+            "and exclude later rows from the retrain."
+        ),
+    )
     parser.add_argument("--retrain-allow-bad-lines", action="store_true")
     parser.add_argument("--retrain-allow-degenerate-validation", action="store_true")
     parser.add_argument(
@@ -1052,6 +1060,11 @@ def parse_args() -> argparse.Namespace:
         "--promote-skip-non-regression-smoke",
         action="store_true",
         help="Pass --skip-non-regression-smoke to automatic promotion.",
+    )
+    parser.add_argument(
+        "--force-promote",
+        action="store_true",
+        help="Pass --force-promote to automatic promotion after candidate gates pass.",
     )
     parser.add_argument("--chunk-days", type=csv_training.positive_float, default=csv_training.DEFAULT_CHUNK_DAYS)
     parser.add_argument(

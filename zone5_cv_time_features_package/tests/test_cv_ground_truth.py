@@ -476,6 +476,27 @@ class TrainingPreprocessingTests(unittest.TestCase):
         self.assertEqual([str(value) for value in pre_test_dates], ["2026-05-01", "2026-05-02", "2026-05-03"])
         self.assertEqual([str(value) for value in test_dates], ["2026-05-04"])
 
+    def test_blind_split_can_hold_out_explicit_date_and_exclude_future_dates(self) -> None:
+        frame = self._split_frame(days=5, rows_per_day=3)
+
+        splits = training.blind_test_split(frame, blind_test_date="2026-05-03")
+        _cv_folds, split_policy = training.validation_folds_for_blind_split(
+            splits,
+            n_folds=1,
+            min_strict_date_coverage=0.0,
+            blind_test_date="2026-05-03",
+        )
+
+        pre_test_dates = pd.to_datetime(splits["pre_test"]["timestamp"]).dt.date.unique().tolist()
+        test_dates = pd.to_datetime(splits["test"]["timestamp"]).dt.date.unique().tolist()
+        excluded_dates = pd.to_datetime(splits["post_test_excluded"]["timestamp"]).dt.date.unique().tolist()
+        self.assertEqual([str(value) for value in pre_test_dates], ["2026-05-01", "2026-05-02"])
+        self.assertEqual([str(value) for value in test_dates], ["2026-05-03"])
+        self.assertEqual([str(value) for value in excluded_dates], ["2026-05-04", "2026-05-05"])
+        self.assertEqual(split_policy["blind_test_selection"], "explicit_date")
+        self.assertEqual(split_policy["blind_test_date"], "2026-05-03")
+        self.assertEqual(split_policy["blind_test_future_excluded_dates"], ["2026-05-04", "2026-05-05"])
+
     def test_adaptive_rolling_validation_uses_fewer_folds_for_short_history(self) -> None:
         frame = self._split_frame(days=4, rows_per_day=3)
 
@@ -708,47 +729,20 @@ class TrainingPreprocessingTests(unittest.TestCase):
     def test_feature_contract_keeps_raw_sensors_but_excludes_missingness_channels(self) -> None:
         for col in [*training.RAW_FEATURE_COLUMNS, *training.TIME_FEATURE_COLUMNS]:
             self.assertIn(col, training.FEATURE_COLUMNS)
-        for col in training.MMWAVE_RECENCY_FEATURE_COLUMNS:
-            self.assertIn(col, training.FEATURE_COLUMNS)
+        for col in [
+            "mmwave_s5_recent_1m_fraction",
+            "mmwave_s5_recent_3m_fraction",
+            "mmwave_s5_recent_5m_fraction",
+            "mmwave_s5_minutes_since_last_occupied",
+        ]:
+            self.assertNotIn(col, training.FEATURE_COLUMNS)
         self.assertFalse(any(col.endswith("_missing") for col in training.FEATURE_COLUMNS))
-        self.assertFalse(any(col in training.source_feature_columns() for col in training.MMWAVE_RECENCY_FEATURE_COLUMNS))
+        self.assertEqual(training.MODEL_CONTRACT_VERSION, "zone5_missingness_decoupled_v1")
+        self.assertEqual(training.source_feature_columns(), training.RAW_FEATURE_COLUMNS)
         self.assertEqual(training.INPUT_CHANNEL_COUNT, len(training.FEATURE_COLUMNS))
 
-    def test_mmwave_recency_features_are_past_only_and_capped(self) -> None:
-        timestamps = pd.date_range("2026-05-06 10:00:00", periods=12, freq="10s")
-        frame = pd.DataFrame(
-            {
-                training.TIMESTAMP_COLUMN: timestamps,
-                "mmwave_s5": [1, 0, 0, 0, 0, 0, 0, 1, np.nan, 0, 0, 0],
-            }
-        )
-
-        enriched = training.add_mmwave_recency_features(frame)
-
-        self.assertAlmostEqual(enriched.loc[0, "mmwave_s5_recent_1m_fraction"], 1.0)
-        self.assertAlmostEqual(enriched.loc[5, "mmwave_s5_recent_1m_fraction"], 1 / 6)
-        self.assertAlmostEqual(enriched.loc[6, "mmwave_s5_recent_1m_fraction"], 0.0)
-        self.assertAlmostEqual(enriched.loc[7, "mmwave_s5_recent_1m_fraction"], 1 / 6)
-        self.assertAlmostEqual(enriched.loc[1, "mmwave_s5_minutes_since_last_occupied"], 1 / 6)
-        self.assertAlmostEqual(enriched.loc[6, "mmwave_s5_minutes_since_last_occupied"], 1.0)
-        self.assertAlmostEqual(enriched.loc[7, "mmwave_s5_minutes_since_last_occupied"], 0.0)
-        self.assertAlmostEqual(enriched.loc[8, "mmwave_s5_minutes_since_last_occupied"], 1 / 6)
-
-        no_prior = training.add_mmwave_recency_features(
-            pd.DataFrame(
-                {
-                    training.TIMESTAMP_COLUMN: pd.date_range("2026-05-06 11:00:00", periods=3, freq="10s"),
-                    "mmwave_s5": [0, 0, 0],
-                }
-            )
-        )
-        self.assertEqual(
-            no_prior["mmwave_s5_minutes_since_last_occupied"].tolist(),
-            [training.MMWAVE_RECENCY_NO_PRIOR_MINUTES] * 3,
-        )
-
-    def test_load_zone_5_csv_derives_mmwave_recency_from_old_csv_schema(self) -> None:
-        root = fresh_test_dir("old_csv_recency")
+    def test_training_preprocessing_does_not_derive_mmwave_recency_features(self) -> None:
+        root = fresh_test_dir("no_recency_features")
         csv_path = root / "zone5_training_cv.csv"
         rows = []
         for idx in range(8):
@@ -763,11 +757,20 @@ class TrainingPreprocessingTests(unittest.TestCase):
         pd.DataFrame(rows).to_csv(csv_path, index=False)
 
         loaded, _path = training.load_zone_5_csv(csv_path)
+        prepared = training.apply_training_preprocessing(
+            loaded,
+            {col: 0.0 for col in training.RAW_FEATURE_COLUMNS},
+        )
 
-        for col in training.MMWAVE_RECENCY_FEATURE_COLUMNS:
-            self.assertIn(col, loaded.columns)
-        self.assertAlmostEqual(loaded.loc[5, "mmwave_s5_recent_1m_fraction"], 1 / 6)
-        self.assertAlmostEqual(loaded.loc[6, "mmwave_s5_minutes_since_last_occupied"], 1.0)
+        recency_columns = [
+            "mmwave_s5_recent_1m_fraction",
+            "mmwave_s5_recent_3m_fraction",
+            "mmwave_s5_recent_5m_fraction",
+            "mmwave_s5_minutes_since_last_occupied",
+        ]
+        for col in recency_columns:
+            self.assertNotIn(col, loaded.columns)
+            self.assertNotIn(col, prepared.columns)
 
     def test_core_missingness_blocks_training_windows_but_sen55_missing_does_not(self) -> None:
         rows = []
@@ -829,24 +832,30 @@ class TrainingPreprocessingTests(unittest.TestCase):
                 max_age_minutes=None,
             )
 
-    def test_live_prediction_accepts_current_production_legacy_contract(self) -> None:
-        root = fresh_test_dir("legacy_live_contract")
+    def test_live_prediction_rejects_old_recency_contract(self) -> None:
+        root = fresh_test_dir("old_recency_live_contract")
         run_dir = write_minimal_zone5_artifact(
             root,
             lookback=3,
-            feature_columns=training.LEGACY_MISSINGNESS_DECOUPLED_FEATURE_COLUMNS,
-            contract_version=training.LEGACY_MISSINGNESS_DECOUPLED_CONTRACT_VERSION,
+            feature_columns=[
+                *training.RAW_FEATURE_COLUMNS,
+                "mmwave_s5_recent_1m_fraction",
+                "mmwave_s5_recent_3m_fraction",
+                "mmwave_s5_recent_5m_fraction",
+                "mmwave_s5_minutes_since_last_occupied",
+                *training.TIME_FEATURE_COLUMNS,
+            ],
+            contract_version="zone5_mmwave_recency_v1",
         )
         frame = self._live_feature_frame(rows=3, value=1.0)
 
-        probability = training.predict_zone_5_probability(
-            frame,
-            artifact_dir=run_dir,
-            reference_time=frame[training.TIMESTAMP_COLUMN].iloc[-1],
-            max_age_minutes=None,
-        )
-
-        self.assertTrue(np.isfinite(probability))
+        with self.assertRaisesRegex(ValueError, "not a supported Zone 5 model"):
+            training.predict_zone_5_probability(
+                frame,
+                artifact_dir=run_dir,
+                reference_time=frame[training.TIMESTAMP_COLUMN].iloc[-1],
+                max_age_minutes=None,
+            )
 
     def test_legacy_missingness_channel_artifact_is_rejected(self) -> None:
         legacy_feature_columns = [
@@ -1010,7 +1019,7 @@ class LiveAppendAndWebFeatureTests(unittest.TestCase):
         self.assertEqual(context["window_start"], "2026-05-23T10:00:00")
         self.assertEqual(context["window_end"], "2026-05-23T10:14:50")
         self.assertEqual(context["mmwave_s5_latest"], 1.0)
-        self.assertAlmostEqual(context["mmwave_s5_occupied_fraction"], 60 / 90)
+        self.assertNotIn("mmwave_s5_occupied_fraction", context)
         self.assertEqual(context["power_s5_latest"], 89.0)
         self.assertAlmostEqual(context["power_s5_mean"], float(np.nanmean(frame["power_s5"])))
         self.assertAlmostEqual(context["core_present_fractions"]["power_s5"], 89 / 90)
@@ -2172,18 +2181,18 @@ class PackageAuditTests(unittest.TestCase):
         self.assertIn("function formatProbability(probability)", app_js)
         self.assertIn("p=${formatProbability(displayedProbability)}", app_js)
 
-    def test_vite_history_chart_shows_mmwave_lookback_fraction(self) -> None:
+    def test_vite_history_chart_does_not_show_mmwave_lookback_fraction(self) -> None:
         package_root = Path(__file__).resolve().parents[1]
         vite_root = package_root / "web_app_vite" / "smart-ilab-zone5"
         app_js = (vite_root / "src" / "main.js").read_text(encoding="utf-8")
         html = (vite_root / "index.html").read_text(encoding="utf-8")
 
-        self.assertIn("function mmwaveLookbackFraction(event)", app_js)
-        self.assertIn("sensor_context?.mmwave_s5_occupied_fraction", app_js)
-        self.assertIn('name: "mmWave lookback"', app_js)
+        self.assertNotIn("function mmwaveLookbackFraction(event)", app_js)
+        self.assertNotIn("sensor_context?.mmwave_s5_occupied_fraction", app_js)
+        self.assertNotIn('name: "mmWave lookback"', app_js)
         self.assertIn("raw p=%{y:.6f}", app_js)
         self.assertIn("RAW PRED", html)
-        self.assertIn("MMWAVE LOOKBACK", html)
+        self.assertNotIn("MMWAVE LOOKBACK", html)
 
 
 class PromotionContractTests(unittest.TestCase):
@@ -2590,6 +2599,55 @@ class PromotionContractTests(unittest.TestCase):
             self.assertEqual(promote_model.main(), 1)
         self.assertIn("degenerate validation candidates are smoke/dev-only", output.getvalue())
         self.assertFalse(production_pointer.exists())
+
+    def test_force_promotion_bypasses_old_production_but_keeps_candidate_gates(self) -> None:
+        root = fresh_test_dir("promotion_force")
+        candidate_root = root / "candidate_model"
+        candidate_run = self._write_candidate(candidate_root, "candidate", training.TARGET_COLUMN)
+        production_pointer = root / "production_run.txt"
+        old_unloadable_run = root / "old_recency_run"
+        production_pointer.write_text(str(old_unloadable_run) + "\n", encoding="utf-8")
+
+        failing_gate_argv = [
+            "zone5.promote_model",
+            "--candidate-run",
+            str(candidate_root),
+            "--production-pointer",
+            str(production_pointer),
+            "--force-promote",
+            "--skip-smoke",
+            "--min-positive-windows",
+            "11",
+        ]
+        with mock.patch.object(sys, "argv", failing_gate_argv), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(promote_model.main(), 1)
+        self.assertIn("positive windows", output.getvalue())
+        self.assertEqual(production_pointer.read_text(encoding="utf-8").strip(), str(old_unloadable_run))
+
+        argv = [
+            "zone5.promote_model",
+            "--candidate-run",
+            str(candidate_root),
+            "--production-pointer",
+            str(production_pointer),
+            "--force-promote",
+            "--min-positive-windows",
+            "1",
+        ]
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.object(promote_model, "_run_smoke", return_value=0) as smoke,
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
+            self.assertEqual(promote_model.main(), 0)
+
+        smoke.assert_called_once()
+        self.assertIn("--force-promote set", output.getvalue())
+        pointer_text = production_pointer.read_text(encoding="utf-8").strip()
+        pointer_path = Path(pointer_text)
+        if not pointer_path.is_absolute():
+            pointer_path = (Path(__file__).resolve().parents[1] / pointer_path).resolve()
+        self.assertEqual(pointer_path, candidate_run.resolve())
 
     def test_web_model_loader_rejects_old_artifact_contract(self) -> None:
         root = fresh_test_dir("web_contract")

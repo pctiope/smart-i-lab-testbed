@@ -21,8 +21,13 @@ Use the root pipeline files instead:
 The shell and PowerShell wrappers in this folder that build or train from CSV are intentionally disabled in the desktop repo copy so the active path stays SQL-only.
 
 This package trains and serves the Zone 5 occupancy model from scratch using
-CV person-count labels plus AIR-1, smart plug, mmWave, SEN55, and engineered
-time features. It intentionally does not include generated training data,
+CV person-count labels plus raw AIR-1, smart plug, mmWave, SEN55, and
+deterministic time features. The active package-local model contract is
+`zone5_missingness_decoupled_v1`: `FEATURE_COLUMNS` are raw sensor columns plus
+hour/day-of-week sin/cos columns only. mmWave recency columns such as
+`mmwave_s5_recent_*` and `mmwave_s5_minutes_since_last_occupied` are not model
+inputs and old recency artifacts are intentionally unsupported. It
+intentionally does not include generated training data,
 archived runs, or a production model. The existing wrapper script names remain
 the user-facing commands. The CV counter runtime assets are package-local under
 `cv_counter/`, so deployment does not depend on files outside this folder.
@@ -469,9 +474,11 @@ Use direct Python commands when you need options that wrappers do not expose.
 `--retrain-seed`, `--retrain-allow-bad-lines`,
 `--retrain-allow-degenerate-validation`, `--retrain-bootstrap-fallback`
 (`auto`, `always`, `never`; default `auto`), `--retrain-cv-folds`
-(`auto`, `1`, `2`, `3`; default `auto`), `--promote-after-retrain`,
+(`auto`, `1`, `2`, `3`; default `auto`), `--retrain-blind-test-date`
+(`YYYY-MM-DD`; excludes later rows from that retrain), `--promote-after-retrain`,
 `--no-promote-after-retrain`, `--production-pointer`,
 `--promote-skip-smoke`, `--promote-skip-non-regression-smoke`,
+`--force-promote`,
 `--min-positive-windows`, `--min-positive-buckets`,
 `--min-positive-events`, `--min-strict-date-coverage`, `--chunk-days`,
 `--min-chunk-hours`, `--api-timeout`, `--api-retries`, `--max-workers`,
@@ -495,7 +502,8 @@ Use direct Python commands when you need options that wrappers do not expose.
 (default `50`), `--optuna-jobs`, `--max-epochs` (default `20`), `--seed`
 (default `42`), `--cv-folds` (`1`, `2`, `3`; default `3`),
 `--allow-bad-lines`, `--allow-degenerate-validation`, `--bootstrap-fallback`,
-and `--min-strict-date-coverage`.
+`--min-strict-date-coverage`, and `--blind-test-date` (`YYYY-MM-DD`; holds out
+exactly that local calendar date and excludes later rows).
 
 `python -m zone5.promote_model` accepts:
 `--candidate-run` (default `model`), `--production-pointer` (default
@@ -504,7 +512,8 @@ and `--min-strict-date-coverage`.
 `--min-pr-auc-delta` (default `0`), `--min-positive-windows` (default `5`),
 `--min-positive-buckets` (default `5`), `--min-positive-events` (default `1`),
 `--max-test-brier` (default `1.0`), and `--max-test-log-loss` (default
-`10.0`).
+`10.0`). `--force-promote` bypasses existing-production loading and PR-AUC
+comparison after the candidate contract, evidence, metric, and smoke gates pass.
 
 `python smoke_test.py` accepts:
 `--candidate-run`, `--production-pointer`, `--min-test-roc-auc`,

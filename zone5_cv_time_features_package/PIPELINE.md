@@ -260,6 +260,11 @@ Raw feature families:
 - SEN55: PM, temperature, humidity, VOC, NOx
 - Time features: hour and day-of-week sin/cos
 
+The active contract is `zone5_missingness_decoupled_v1`. Model inputs are raw
+sensor columns plus deterministic time features only. No mmWave recency columns
+are derived, stored in model metadata, required by inference, or accepted from
+old artifacts.
+
 `mmwave_s5` is the Zone 5 mmWave occupancy feature. Zone 5 maps to MSR-2 device
 `89f464`. The parser accepts the Zone 5 mmWave occupancy fields and
 target-like fields such as `radar_target` and still-target variants.
@@ -323,6 +328,12 @@ strict validation fold size: 1 calendar day
 maximum strict folds: 3
 lookbacks: 15, 60, and 180 minutes
 ```
+
+Pass `--blind-test-date YYYY-MM-DD` to `zone5.training` or `zone5.retrain_once`
+when a specific blind-test day is required. With that option the blind test is
+exactly the requested local calendar date, pre-test training/CV rows are limited
+to dates before it, and dates after it are excluded and recorded in
+`split_policy.blind_test_future_excluded_dates`.
 
 For `--cv-folds 1`, only the most recent pre-test validation day is used. For
 `--cv-folds 2`, the two most recent pre-test validation days are used when
@@ -478,6 +489,12 @@ Promotion checks:
 - blind-test Brier score and log loss are below configured maxima
 - smoke test passes unless `--skip-smoke` is passed
 - existing production is not regressed on the candidate blind-test window
+
+For intentional contract migrations, `--force-promote` skips loading and
+comparing the existing production artifact after the new candidate passes its
+own contract, blind-test evidence, finite metric, and smoke gates. It also
+passes `--skip-non-regression` to the smoke test so old unsupported artifacts do
+not block the migration.
 
 Default promotion gate highlights:
 

@@ -12,3 +12,7 @@ Expected tracked files:
 
 - `zone5-production-latest.json`: latest promoted production model summary.
 - `promotions/<run_id>.json`: immutable summary for a promoted run.
+
+Registry summaries for current production runs should report
+`model_contract_version: zone5_missingness_decoupled_v1`. The current contract
+does not include mmWave-recency feature columns.

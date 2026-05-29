@@ -42,6 +42,12 @@ Runtime state stays on the server in `data/`, `model/`, `logs/`, and
 promote production models on every commit. Runtime services write CSV tables;
 only trainer ops write immutable snapshots under `data/training_snapshots/`.
 
+Current production-compatible model artifacts must use
+`zone5_missingness_decoupled_v1`: raw sensor columns plus deterministic time
+features only. Do not deliver old mmWave-recency artifacts to staging or
+production; use `zone5.promote_model --force-promote` only for an intentional
+contract migration after candidate validation succeeds.
+
 ## 1. Prepare The Folder For Git
 
 From this package root:

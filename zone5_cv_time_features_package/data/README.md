@@ -16,6 +16,10 @@ Expected generated files:
 - `training_snapshots/`: immutable Parquet snapshots created by
   `run_zone5_trainer.sh` before each retrain.
 
+The joined table stores raw sensor columns and audit missingness columns.
+Training derives only deterministic time features for the model; it no longer
+derives or persists mmWave-recency model inputs.
+
 The deployed systemd trainer snapshots `zone5_training_cv.csv` by default so it
 can train from the freshest joined data without blocking live appends. Older
 unreferenced files in `training_snapshots/` can be removed after confirming

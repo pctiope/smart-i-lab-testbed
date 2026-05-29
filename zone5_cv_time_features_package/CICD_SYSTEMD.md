@@ -37,6 +37,12 @@ train or promote production models on every commit. Runtime services write CSV
 tables; only `zone5-trainer.service` writes immutable snapshots under
 `data/training_snapshots/`.
 
+Current production-compatible model artifacts must use
+`zone5_missingness_decoupled_v1`: raw sensor columns plus deterministic time
+features only. Old mmWave-recency artifacts are not loadable after this
+contract migration; use `zone5.promote_model --force-promote` only for the
+intentional one-time promotion after the new candidate passes its own gates.
+
 ## 1. Prepare The Folder For Git
 
 From this package root:

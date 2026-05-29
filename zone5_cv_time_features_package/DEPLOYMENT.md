@@ -493,7 +493,8 @@ Common direct flags:
   `--retrain-cv-folds auto|1|2|3`, `--promote-after-retrain`,
   `--no-promote-after-retrain`,
   `--production-pointer`, `--promote-skip-smoke`,
-  `--promote-skip-non-regression-smoke`, `--min-positive-windows`,
+  `--promote-skip-non-regression-smoke`, `--force-promote`,
+  `--retrain-blind-test-date YYYY-MM-DD`, `--min-positive-windows`,
   `--min-positive-buckets`, `--min-positive-events`,
   `--min-strict-date-coverage`, `--duration-min`, `--time-start`,
   `--time-end`, `--backfill-sec`, `--snapshot-refresh-every-hours`,
@@ -503,10 +504,12 @@ Common direct flags:
 - `zone5.sen55_mqtt_collector`: `--flush-check-seconds 1`.
 - `zone5.training`: `--n-trials 50`, `--max-epochs 20`, `--optuna-jobs`,
   `--seed 42`, `--output-dir model`, `--cv-folds 1|2|3`,
-  `--bootstrap-fallback`, `--min-strict-date-coverage`.
+  `--bootstrap-fallback`, `--min-strict-date-coverage`,
+  `--blind-test-date YYYY-MM-DD`.
 - `zone5.promote_model`: `--candidate-run model`, `--production-pointer
   model/production_run.txt`, `--min-positive-windows 5`,
-  `--min-positive-buckets 5`, `--min-positive-events 1`, `--skip-smoke`.
+  `--min-positive-buckets 5`, `--min-positive-events 1`, `--skip-smoke`,
+  `--force-promote`.
 
 ## Optional Manual Training And App
 
@@ -549,6 +552,14 @@ tries to mature to 2 folds. `--allow-degenerate-validation` is separate and
 intended for smoke/dev runs that allow single-class validation windows; it does
 not allow single-class training windows, and promotion rejects
 degenerate-validation candidates.
+
+The active model contract is `zone5_missingness_decoupled_v1`: raw sensor
+columns plus deterministic time features only. Do not deploy old
+`zone5_mmwave_recency_v1` artifacts. When retraining for a fixed holdout day,
+pass `--blind-test-date YYYY-MM-DD`; rows after that date are excluded from
+training/evaluation and recorded in `split_policy`. During an intentional
+contract migration, `--force-promote` bypasses loading/comparing the old
+production artifact after the new candidate passes its own gates.
 
 Open:
 

@@ -103,13 +103,6 @@ def _mean_numeric(frame: pd.DataFrame, column: str) -> float | None:
     return _json_safe_float(series.mean())
 
 
-def _occupied_fraction(frame: pd.DataFrame, column: str) -> float | None:
-    series = _numeric_series(frame, column).dropna()
-    if series.empty:
-        return None
-    return _json_safe_float((series > 0.0).mean())
-
-
 def build_sensor_context(
     window: pd.DataFrame,
     lookback: int | None,
@@ -139,7 +132,6 @@ def build_sensor_context(
         "window_start": window_start,
         "window_end": window_end,
         "mmwave_s5_latest": _latest_numeric(recent, "mmwave_s5"),
-        "mmwave_s5_occupied_fraction": _occupied_fraction(recent, "mmwave_s5"),
         "power_s5_latest": _latest_numeric(recent, "power_s5"),
         "power_s5_mean": _mean_numeric(recent, "power_s5"),
         "core_present_fractions": core_present_fractions,

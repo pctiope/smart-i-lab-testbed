@@ -25,8 +25,6 @@ from zone5.feature_contract import (
     TARGET_COLUMN,
     TIME_FEATURE_COLUMNS,
     TIMESTAMP_COLUMN,
-    MMWAVE_RECENCY_FEATURE_COLUMNS,
-    add_mmwave_recency_features,
     add_time_features,
 )
 
@@ -259,7 +257,6 @@ def _clean_zone_5_training_frame(raw: pd.DataFrame, source_label: str) -> pd.Dat
     frame.loc[labeled_mask, TARGET_COLUMN] = frame.loc[labeled_mask, TARGET_COLUMN].round()
     invalid_label_mask = labeled_mask & ~frame[TARGET_COLUMN].isin([0, 1])
     frame.loc[invalid_label_mask, TARGET_COLUMN] = np.nan
-    frame = add_mmwave_recency_features(frame)
     frame = add_time_features(frame)
     frame = frame.sort_values(TIMESTAMP_COLUMN)
     frame = frame.drop_duplicates(subset=[TIMESTAMP_COLUMN], keep="last")
@@ -380,9 +377,21 @@ def _frame_time_bounds(frame: pd.DataFrame) -> dict[str, Any]:
     }
 
 
+def _normalize_blind_test_date(value: str | pd.Timestamp) -> pd.Timestamp:
+    date = pd.Timestamp(value)
+    if pd.isna(date):
+        raise ValueError(f"Invalid blind_test_date: {value!r}")
+    return date.normalize()
+
+
+def _empty_like(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.iloc[0:0].copy().reset_index(drop=True)
+
+
 def blind_test_split(
     frame: pd.DataFrame,
     test_calendar_days: int = BLIND_TEST_CALENDAR_DAYS,
+    blind_test_date: str | pd.Timestamp | None = None,
 ) -> dict[str, pd.DataFrame]:
     test_calendar_days = int(test_calendar_days)
     if test_calendar_days < 1:
@@ -399,12 +408,24 @@ def blind_test_split(
             f"found {len(unique_dates)}."
         )
     date_series = pd.to_datetime(frame[TIMESTAMP_COLUMN]).dt.normalize()
-    sampled_test_dates = set(unique_dates[-test_calendar_days:])
-    splits = {
-        "pre_test": frame.loc[~date_series.isin(sampled_test_dates)].copy().reset_index(drop=True),
-        "test": frame.loc[date_series.isin(sampled_test_dates)].copy().reset_index(drop=True),
-    }
+    if blind_test_date is not None:
+        if test_calendar_days != 1:
+            raise ValueError("--blind-test-date holds out exactly one calendar day; keep test_calendar_days=1.")
+        requested_date = _normalize_blind_test_date(blind_test_date)
+        splits = {
+            "pre_test": frame.loc[date_series < requested_date].copy().reset_index(drop=True),
+            "test": frame.loc[date_series == requested_date].copy().reset_index(drop=True),
+            "post_test_excluded": frame.loc[date_series > requested_date].copy().reset_index(drop=True),
+        }
+    else:
+        sampled_test_dates = set(unique_dates[-test_calendar_days:])
+        splits = {
+            "pre_test": frame.loc[~date_series.isin(sampled_test_dates)].copy().reset_index(drop=True),
+            "test": frame.loc[date_series.isin(sampled_test_dates)].copy().reset_index(drop=True),
+            "post_test_excluded": _empty_like(frame),
+        }
     empty_splits = [name for name, split in splits.items() if split.empty]
+    empty_splits = [name for name in empty_splits if name != "post_test_excluded"]
     if empty_splits:
         raise ValueError(f"Blind test split produced empty split(s): {empty_splits}")
     return splits
@@ -547,6 +568,7 @@ def validation_folds_for_blind_split(
     validation_calendar_days: int = CV_VALIDATION_CALENDAR_DAYS,
     test_calendar_days: int = BLIND_TEST_CALENDAR_DAYS,
     min_strict_date_coverage: float = STRICT_DATE_MIN_COVERAGE,
+    blind_test_date: str | pd.Timestamp | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     pre_test_dates = _calendar_dates(blind_splits["pre_test"])
     eligible_dates, excluded_dates = _strict_date_coverage(
@@ -570,8 +592,20 @@ def validation_folds_for_blind_split(
             f"found {len(_calendar_dates(pd.concat([blind_splits['pre_test'], blind_splits['test']], ignore_index=True)))}."
         )
 
+    post_test_excluded = blind_splits.get("post_test_excluded")
+    if post_test_excluded is None:
+        post_test_excluded = _empty_like(blind_splits["pre_test"])
+    excluded_future_dates = _calendar_dates(post_test_excluded) if not post_test_excluded.empty else []
+    test_dates = _calendar_dates(blind_splits["test"])
     split_policy = {
         "validation_mode": validation_mode,
+        "blind_test_selection": "explicit_date" if blind_test_date is not None else "latest_calendar_day",
+        "blind_test_date": (
+            _normalize_blind_test_date(blind_test_date).date().isoformat()
+            if blind_test_date is not None
+            else None
+        ),
+        "blind_test_dates": [date.date().isoformat() for date in test_dates],
         "blind_test_calendar_days": int(test_calendar_days),
         "cv_folds": int(len(cv_folds)),
         "cv_folds_requested": int(n_folds),
@@ -582,6 +616,9 @@ def validation_folds_for_blind_split(
         "strict_date_eligible_dates": [date.date().isoformat() for date in eligible_dates],
         "strict_date_excluded_dates": excluded_dates,
         "final_model_training_rows": "all rows before the blind test split",
+        "blind_test_future_excluded_rows": int(len(post_test_excluded)),
+        "blind_test_future_excluded_dates": [date.date().isoformat() for date in excluded_future_dates],
+        "blind_test_future_excluded_bounds": _frame_time_bounds(post_test_excluded),
         "pre_test_bounds": _frame_time_bounds(blind_splits["pre_test"]),
         "blind_test_bounds": _frame_time_bounds(blind_splits["test"]),
         "cv_fold_bounds": _cv_fold_bounds(cv_folds),
@@ -595,14 +632,20 @@ def blind_test_and_validation_splits(
     n_folds: int = CV_FOLDS,
     validation_calendar_days: int = CV_VALIDATION_CALENDAR_DAYS,
     min_strict_date_coverage: float = STRICT_DATE_MIN_COVERAGE,
+    blind_test_date: str | pd.Timestamp | None = None,
 ) -> tuple[dict[str, pd.DataFrame], list[dict[str, Any]], dict[str, Any]]:
-    blind_splits = blind_test_split(frame, test_calendar_days=test_calendar_days)
+    blind_splits = blind_test_split(
+        frame,
+        test_calendar_days=test_calendar_days,
+        blind_test_date=blind_test_date,
+    )
     cv_folds, split_policy = validation_folds_for_blind_split(
         blind_splits,
         n_folds=n_folds,
         validation_calendar_days=validation_calendar_days,
         test_calendar_days=test_calendar_days,
         min_strict_date_coverage=min_strict_date_coverage,
+        blind_test_date=blind_test_date,
     )
     return blind_splits, cv_folds, split_policy
 
@@ -635,7 +678,6 @@ def fill_values_from_train(train_df: pd.DataFrame) -> dict[str, float]:
 
 def apply_training_preprocessing(frame: pd.DataFrame, fill_values: dict[str, float]) -> pd.DataFrame:
     prepared = _coerce_missing_indicators(frame)
-    prepared = add_mmwave_recency_features(prepared)
     if any(col not in prepared.columns for col in TIME_FEATURE_COLUMNS):
         prepared = add_time_features(prepared)
 
@@ -643,8 +685,6 @@ def apply_training_preprocessing(frame: pd.DataFrame, fill_values: dict[str, flo
         prepared[col] = pd.to_numeric(prepared[col], errors="coerce").fillna(float(fill_values.get(col, 0.0)))
     for col in MISSING_INDICATOR_COLUMNS:
         prepared[col] = pd.to_numeric(prepared[col], errors="coerce").fillna(1).round().clip(0, 1).astype(int)
-    for col in MMWAVE_RECENCY_FEATURE_COLUMNS:
-        prepared[col] = pd.to_numeric(prepared[col], errors="coerce")
     for col in TIME_FEATURE_COLUMNS:
         prepared[col] = pd.to_numeric(prepared[col], errors="coerce")
 

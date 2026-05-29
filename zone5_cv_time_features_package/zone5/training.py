@@ -624,12 +624,13 @@ def select_cv_lookback_plan(
     allow_degenerate_validation: bool = False,
     cv_folds_policy: dict[str, Any] | None = None,
     min_strict_date_coverage: float = STRICT_DATE_MIN_COVERAGE,
+    blind_test_date: str | pd.Timestamp | None = None,
 ) -> dict[str, Any]:
     requested_cv_folds = validate_cv_folds(cv_folds)
     try:
-        blind_splits = blind_test_split(frame)
+        blind_splits = blind_test_split(frame, blind_test_date=blind_test_date)
     except ValueError as exc:
-        if not bootstrap_fallback:
+        if blind_test_date is not None or not bootstrap_fallback:
             raise
         timestamps = pd.to_datetime(frame[TIMESTAMP_COLUMN])
         unique_dates = sorted(timestamps.dt.normalize().unique())
@@ -677,6 +678,7 @@ def select_cv_lookback_plan(
             blind_splits,
             n_folds=requested_cv_folds,
             min_strict_date_coverage=min_strict_date_coverage,
+            blind_test_date=blind_test_date,
         )
         strict_lookback_candidates, strict_rejected_lookbacks = viable_cv_lookback_candidates(
             strict_cv_folds,
@@ -875,9 +877,15 @@ def train_zone_5_from_csv(
     cv_folds: int = MAX_STRICT_CV_FOLDS,
     cv_folds_policy: dict[str, Any] | None = None,
     min_strict_date_coverage: float = STRICT_DATE_MIN_COVERAGE,
+    blind_test_date: str | pd.Timestamp | None = None,
 ) -> dict[str, Any]:
     _set_seed(seed)
     requested_cv_folds = validate_cv_folds(cv_folds)
+    normalized_blind_test_date = (
+        pd.Timestamp(blind_test_date).normalize().date().isoformat()
+        if blind_test_date is not None
+        else None
+    )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if optuna_jobs is None:
         optuna_jobs = _default_optuna_jobs(device)
@@ -903,6 +911,7 @@ def train_zone_5_from_csv(
         allow_degenerate_validation=allow_degenerate_validation,
         cv_folds_policy=cv_folds_policy,
         min_strict_date_coverage=min_strict_date_coverage,
+        blind_test_date=blind_test_date,
     )
     blind_splits = cv_plan["blind_splits"]
     cv_folds = cv_plan["cv_folds"]
@@ -1048,6 +1057,7 @@ def train_zone_5_from_csv(
         "cv_folds_requested": int(requested_cv_folds),
         "cv_folds_used": int(split_policy.get("cv_folds_used", len(cv_folds))),
         "min_strict_date_coverage": float(min_strict_date_coverage),
+        "blind_test_date": normalized_blind_test_date,
     }
 
     best_params_payload = {
@@ -1066,6 +1076,7 @@ def train_zone_5_from_csv(
         "cv_folds_requested": int(requested_cv_folds),
         "cv_folds_used": int(split_policy.get("cv_folds_used", len(cv_folds))),
         "validation_mode": split_policy.get("validation_mode"),
+        "blind_test_date": normalized_blind_test_date,
         "pos_weight": float(pos_weight),
         "cv_fold_metrics": cv_fold_metrics,
         "cv_pr_auc_std": study.best_trial.user_attrs.get("std_cv_pr_auc"),
@@ -1095,6 +1106,7 @@ def train_zone_5_from_csv(
         "cv_folds_requested": int(requested_cv_folds),
         "cv_folds_used": int(split_policy.get("cv_folds_used", len(cv_folds))),
         "min_strict_date_coverage": float(min_strict_date_coverage),
+        "blind_test_date": normalized_blind_test_date,
         "core_feature_min_present_fractions": CORE_FEATURE_MIN_PRESENT_FRACTIONS,
         "sen55_optional": True,
         "sen55_dropout_probability": DEFAULT_SEN55_DROPOUT_PROBABILITY,
@@ -1155,6 +1167,7 @@ def train_zone_5_from_csv(
         "cv_folds_requested": int(requested_cv_folds),
         "cv_folds_used": int(split_policy.get("cv_folds_used", len(cv_folds))),
         "min_strict_date_coverage": float(min_strict_date_coverage),
+        "blind_test_date": normalized_blind_test_date,
         "final_training_epochs": int(final_training_epochs),
         "core_feature_min_present_fractions": CORE_FEATURE_MIN_PRESENT_FRACTIONS,
         "sen55_optional": True,
@@ -1193,6 +1206,7 @@ def train_zone_5_from_csv(
         "cv_folds_requested": int(requested_cv_folds),
         "cv_folds_used": int(split_policy.get("cv_folds_used", len(cv_folds))),
         "min_strict_date_coverage": float(min_strict_date_coverage),
+        "blind_test_date": normalized_blind_test_date,
         "final_training_epochs": int(final_training_epochs),
         "sample_interval_seconds": SAMPLE_INTERVAL_SECONDS,
         "lookback_minutes": best_lookback_minutes,
@@ -1254,6 +1268,14 @@ def parse_args() -> argparse.Namespace:
         default=STRICT_DATE_MIN_COVERAGE,
         help="Minimum fraction of a full 10-second day required for a date to be used in strict CV. Default: 0.75.",
     )
+    parser.add_argument(
+        "--blind-test-date",
+        default=None,
+        help=(
+            "Hold out exactly this local calendar date as blind test (YYYY-MM-DD) "
+            "and exclude later rows from training/evaluation."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1272,6 +1294,7 @@ def main() -> None:
         bootstrap_fallback=args.bootstrap_fallback,
         cv_folds=args.cv_folds,
         min_strict_date_coverage=args.min_strict_date_coverage,
+        blind_test_date=args.blind_test_date,
     )
     print(json.dumps(_json_safe(result), indent=2, sort_keys=True))
 

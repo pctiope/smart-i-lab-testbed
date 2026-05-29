@@ -21,6 +21,11 @@ or fail while data is still accumulating. Typical blockers are too few
 blind-test positive windows, too few positive buckets/events, not enough
 coverage-eligible strict-CV dates, or single-class train/validation windows.
 
+Current runs must use `model_contract_version:
+zone5_missingness_decoupled_v1`. The feature columns are raw sensors plus
+deterministic time features only; old mmWave-recency runs are intentionally not
+supported by the current app.
+
 For the first production model, bootstrap fallback can be used only after strict
 rolling validation has no viable lookbacks. Once `production_run.txt` exists,
 future promoted candidates must come from strict validation. The default
