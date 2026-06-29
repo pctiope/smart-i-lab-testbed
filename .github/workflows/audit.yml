@@ -25,7 +25,7 @@ jobs:
           cache: npm
           cache-dependency-path: SSL-IoT1-REST/package-lock.json
       - run: npm ci
-      - run: npm audit --audit-level=high --production
+      - run: npm audit --audit-level=high --omit=dev
 
   npm-audit-digitaltwin:
     name: npm audit (Smart-iLab_DigitalTwin)
@@ -41,7 +41,7 @@ jobs:
           cache: npm
           cache-dependency-path: Smart-iLab_DigitalTwin/package-lock.json
       - run: npm ci
-      - run: npm audit --audit-level=high --production
+      - run: npm audit --audit-level=high --omit=dev
 
   pip-audit:
     name: pip-audit (Smart-iLAB-Python-Files)

@@ -9,7 +9,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
-const { v4: uuidv4 } = require("uuid");
+const { randomUUID } = require("crypto");
 require('dotenv').config();
 const mqtt = require("mqtt");
 const url = `${process.env.MQTT_IP}:${process.env.MQTT_PORT}`;
@@ -579,7 +579,7 @@ app.post("/users/:user_name", async (req,res)=>{
 
         const user_name = req.params.user_name;
         const access_level = req.query.access_level;
-        let api_key = uuidv4(); // generate API key
+        let api_key = randomUUID(); // generate API key
 
         // Check if user is available
         let to_check = await USER_is_available(user_name); // Call ID checker function
