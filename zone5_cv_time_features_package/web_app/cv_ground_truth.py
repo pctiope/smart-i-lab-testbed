@@ -49,12 +49,19 @@ def _to_naive_minute(value: Any) -> pd.Timestamp | None:
 
 
 class CvGroundTruthTailer:
-    def __init__(self, table_path: Path | str | None = None, *, parquet_path: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        table_path: Path | str | None = None,
+        *,
+        parquet_path: Path | str | None = None,
+        refresh_seconds: float = 5.0,
+    ) -> None:
         if table_path is None:
             if parquet_path is None:
                 raise TypeError("CvGroundTruthTailer requires a table_path")
             table_path = parquet_path
         self.table_path = Path(table_path)
+        self.refresh_seconds = float(refresh_seconds)
         self._cached_mtime: float = 0.0
         self._cached_frame: pd.DataFrame | None = None
         self._last_error: str | None = None
@@ -73,6 +80,14 @@ class CvGroundTruthTailer:
         return f"cv_ground_truth[{self.table_path}]"
 
     def _load_if_needed(self) -> pd.DataFrame | None:
+        # The collector rewrites the table every ~10s, so the mtime check below
+        # almost never short-circuits; without this time gate every caller
+        # (notably /api/health) re-parses the full table on each call.
+        if (
+            self._cached_frame is not None
+            and time.time() - self._last_read_at < self.refresh_seconds
+        ):
+            return self._cached_frame
         if not self.table_path.is_file():
             self._last_error = f"CV ground-truth table not found: {self.table_path}"
             self._cached_frame = None

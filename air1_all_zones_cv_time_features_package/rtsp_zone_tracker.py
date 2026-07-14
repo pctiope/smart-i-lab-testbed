@@ -158,8 +158,8 @@ def parse_args():
                    help="Optional MQTT username.")
     p.add_argument("--mqtt-password", default=os.getenv("PERSON_COUNT_MQTT_PASSWORD"),
                    help="Optional MQTT password.")
-    p.add_argument("--mqtt-client-id", default=os.getenv("PERSON_COUNT_MQTT_CLIENT_ID", "care_ssl_zone_tracker"),
-                   help="MQTT client ID. Default: care_ssl_zone_tracker")
+    p.add_argument("--mqtt-client-id", default=os.getenv("PERSON_COUNT_MQTT_CLIENT_ID"),
+                   help="MQTT client ID. Default: care_ssl_zone_tracker_<camera-id>")
     p.add_argument("--mqtt-qos", type=int, choices=[0, 1, 2], default=int(os.getenv("PERSON_COUNT_MQTT_QOS", "0")),
                    help="MQTT publish QoS. Default: 0")
     p.add_argument("--mqtt-retain", action="store_true",
@@ -485,7 +485,10 @@ def connect_mqtt(args):
     if not args.mqtt_broker:
         return None
 
-    client = create_mqtt_client(args.mqtt_client_id)
+    # Per-camera fallback id: cam1 and cam2 run this script concurrently, and
+    # the broker drops the older session when two clients share one id.
+    client_id = args.mqtt_client_id or f"care_ssl_zone_tracker_{infer_camera_id(args)}"
+    client = create_mqtt_client(client_id)
     if args.mqtt_username or args.mqtt_password:
         client.username_pw_set(args.mqtt_username, args.mqtt_password)
 

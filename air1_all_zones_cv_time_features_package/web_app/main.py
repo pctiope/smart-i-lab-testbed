@@ -157,12 +157,15 @@ def _build_ground_truth_source() -> CvGroundTruthTailer | None:
     enabled_raw = os.environ.get("AIR1_ALL_ZONES_CV_GROUND_TRUTH_ENABLED", "true").strip().lower()
     if enabled_raw in {"0", "false", "no", "off", "disabled"}:
         return None
+    refresh_seconds = _env_float("AIR1_ALL_ZONES_CV_GROUND_TRUTH_REFRESH_SEC", 30.0)
     if "AIR1_ALL_ZONES_CV_GROUND_TRUTH_PARQUET" in os.environ and "AIR1_ALL_ZONES_CV_GROUND_TRUTH_TABLE" not in os.environ:
         return CvGroundTruthTailer(
-            _env_path("AIR1_ALL_ZONES_CV_GROUND_TRUTH_PARQUET", DEFAULT_CV_GROUND_TRUTH_TABLE)
+            _env_path("AIR1_ALL_ZONES_CV_GROUND_TRUTH_PARQUET", DEFAULT_CV_GROUND_TRUTH_TABLE),
+            refresh_seconds=refresh_seconds,
         )
     return CvGroundTruthTailer(
-        _env_path("AIR1_ALL_ZONES_CV_GROUND_TRUTH_TABLE", DEFAULT_CV_GROUND_TRUTH_TABLE)
+        _env_path("AIR1_ALL_ZONES_CV_GROUND_TRUTH_TABLE", DEFAULT_CV_GROUND_TRUTH_TABLE),
+        refresh_seconds=refresh_seconds,
     )
 
 
@@ -274,11 +277,14 @@ async def health(request: Request) -> JSONResponse:
         camera_id: _rtsp_status(camera_id, grabber)
         for camera_id, grabber in rtsp_grabbers.items()
     }
+    # status() may (re)read the ground-truth table; keep that off the event
+    # loop so a slow read cannot stall every other endpoint.
+    inference_status = await asyncio.to_thread(inference_loop.status)
     payload = {
         "ok": True,
         "rtsp": rtsp_by_camera["cam1"],
         "rtsp_by_camera": rtsp_by_camera,
-        "inference": inference_loop.status(),
+        "inference": inference_status,
         "config": {
             "tick_interval_sec": config.tick_interval_sec,
             "history_size": config.history_size,
