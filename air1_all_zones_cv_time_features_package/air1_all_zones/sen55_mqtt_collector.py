@@ -22,8 +22,10 @@ DEFAULT_BROKER = os.getenv("SEN55_MQTT_BROKER", "10.158.71.19")
 DEFAULT_PORT = int(os.getenv("SEN55_MQTT_PORT", "1883"))
 DEFAULT_TOPIC = os.getenv("SEN55_MQTT_TOPIC", "sen55_01/data")
 DEFAULT_USERNAME = os.getenv("SEN55_MQTT_USERNAME", "guest")
-DEFAULT_PASSWORD = os.getenv("SEN55_MQTT_PASSWORD", "smartilab123")
-DEFAULT_CLIENT_ID = os.getenv("SEN55_MQTT_CLIENT_ID", "sen55_table_subscriber")
+DEFAULT_PASSWORD = os.getenv("SEN55_MQTT_PASSWORD", "")
+# Must differ from the zone5 collector's id: the broker drops the older
+# session whenever a second client connects with the same id.
+DEFAULT_CLIENT_ID = os.getenv("SEN55_MQTT_CLIENT_ID", "sen55_air1_all_zones_collector")
 DEFAULT_OUTPUT_CSV = DATA_DIR / "sen55_data.csv"
 DEFAULT_OUTPUT_PARQUET = DATA_DIR / "sen55_data.parquet"
 

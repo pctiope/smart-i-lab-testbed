@@ -9,7 +9,11 @@ if [[ -d ".python-packages" ]]; then
 fi
 export YOLO_AUTOINSTALL="${YOLO_AUTOINSTALL:-False}"
 
-SOURCE="${ZONE5_RTSP_URL:-${SOURCE:-rtsp://admin:++smartilab2023@10.158.71.241:554/Streaming/channels/102}}"
+SOURCE="${ZONE5_RTSP_URL:-${SOURCE:-}}"
+if [[ -z "$SOURCE" ]]; then
+  echo "Set ZONE5_RTSP_URL or SOURCE to the camera RTSP URL." >&2
+  exit 2
+fi
 SCRIPT="${SCRIPT:-cv_counter/rtsp_person_mask_tracker_new.py}"
 MASK="${MASK:-cv_counter/masks/cam1-desk5-mask.png}"
 MODEL="${MODEL:-cv_counter/models/headtracker-m.pt}"
@@ -27,7 +31,7 @@ MQTT_BROKER="${PERSON_COUNT_MQTT_BROKER:-${MQTT_BROKER:-10.158.71.19}}"
 MQTT_PORT="${PERSON_COUNT_MQTT_PORT:-${MQTT_PORT:-1883}}"
 MQTT_TOPIC="${PERSON_COUNT_MQTT_TOPIC:-${MQTT_TOPIC:-care_ssl/zone5/person_count}}"
 MQTT_USERNAME="${PERSON_COUNT_MQTT_USERNAME:-${MQTT_USERNAME:-guest}}"
-MQTT_PASSWORD="${PERSON_COUNT_MQTT_PASSWORD:-${MQTT_PASSWORD:-smartilab123}}"
+MQTT_PASSWORD="${PERSON_COUNT_MQTT_PASSWORD:-${MQTT_PASSWORD:-}}"
 MQTT_EVERY="${PERSON_COUNT_MQTT_EVERY:-${MQTT_EVERY:-5}}"
 COUNTS_EVERY="${PERSON_COUNT_COUNTS_EVERY:-${COUNTS_EVERY:-5}}"
 LATEST_JPEG="${PERSON_COUNT_LATEST_JPEG:-${LATEST_JPEG:-${ZONE5_ANNOTATED_FRAME_PATH:-data/yolo_latest.jpg}}}"

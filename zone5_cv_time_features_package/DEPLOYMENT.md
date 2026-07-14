@@ -157,7 +157,7 @@ PERSON_COUNT_MQTT_BROKER=10.158.71.19
 PERSON_COUNT_MQTT_PORT=1883
 PERSON_COUNT_MQTT_TOPIC=care_ssl/zone5/person_count
 PERSON_COUNT_MQTT_USERNAME=guest
-PERSON_COUNT_MQTT_PASSWORD=smartilab123
+PERSON_COUNT_MQTT_PASSWORD=<mqtt-password>
 PERSON_COUNT_IMGSZ=256
 PERSON_COUNT_TRACKING=1
 PERSON_COUNT_SHOW_MASK=1
@@ -166,12 +166,12 @@ OCCUPANCY_MQTT_BROKER=10.158.71.19
 OCCUPANCY_MQTT_PORT=1883
 OCCUPANCY_MQTT_TOPIC=care_ssl/zone5/person_count
 OCCUPANCY_MQTT_USERNAME=guest
-OCCUPANCY_MQTT_PASSWORD=smartilab123
+OCCUPANCY_MQTT_PASSWORD=<mqtt-password>
 SEN55_MQTT_BROKER=10.158.71.19
 SEN55_MQTT_PORT=1883
 SEN55_MQTT_TOPIC=sen55_01/data
 SEN55_MQTT_USERNAME=guest
-SEN55_MQTT_PASSWORD=smartilab123
+SEN55_MQTT_PASSWORD=<mqtt-password>
 ```
 
 The Zone 5 RTSP camera URL is configured in `web_app/.env` and read by the
@@ -465,7 +465,7 @@ variable before the command for a one-off override, or place it in
 
 | Command | Defaults | Override example |
 | --- | --- | --- |
-| `bash run_person_counter.sh` | `ZONE5_RTSP_URL=rtsp://admin:++smartilab2023@10.158.71.241:554/Streaming/channels/101`; `MASK=cv_counter/masks/cam1-desk5-mask.png`; `TRACKER=cv_counter/trackers/bytetrack.yaml`; `DEVICE=cpu`; `PERSON_COUNT_IMGSZ=256`; `PERSON_COUNT_TRACKING=1`; `PERSON_COUNT_SHOW_MASK=1`; `COUNTS_CSV=data/person_counts.csv`; `PERSON_COUNT_MQTT_BROKER=10.158.71.19`; `PERSON_COUNT_MQTT_PORT=1883`; `PERSON_COUNT_MQTT_TOPIC=care_ssl/zone5/person_count`; `PERSON_COUNT_MQTT_USERNAME=guest`; `PERSON_COUNT_MQTT_PASSWORD=smartilab123`; `COUNTS_EVERY=1`; `MQTT_EVERY=1`. | `TRACKER=cv_counter/trackers/botsort.yaml PERSON_COUNT_IMGSZ=320 bash run_person_counter.sh` |
+| `bash run_person_counter.sh` | `ZONE5_RTSP_URL=rtsp://<user>:<password>@10.158.71.241:554/Streaming/channels/101`; `MASK=cv_counter/masks/cam1-desk5-mask.png`; `TRACKER=cv_counter/trackers/bytetrack.yaml`; `DEVICE=cpu`; `PERSON_COUNT_IMGSZ=256`; `PERSON_COUNT_TRACKING=1`; `PERSON_COUNT_SHOW_MASK=1`; `COUNTS_CSV=data/person_counts.csv`; `PERSON_COUNT_MQTT_BROKER=10.158.71.19`; `PERSON_COUNT_MQTT_PORT=1883`; `PERSON_COUNT_MQTT_TOPIC=care_ssl/zone5/person_count`; `PERSON_COUNT_MQTT_USERNAME=guest`; `PERSON_COUNT_MQTT_PASSWORD=<mqtt-password>`; `COUNTS_EVERY=1`; `MQTT_EVERY=1`. | `TRACKER=cv_counter/trackers/botsort.yaml PERSON_COUNT_IMGSZ=320 bash run_person_counter.sh` |
 | `bash run_sen55_collector.sh` | `OUTPUT_CSV=data/sen55_data.csv`; MQTT defaults come from `web_app/.env` or code. | `OUTPUT_CSV=data/sen55_data.csv bash run_sen55_collector.sh` |
 | `bash run_live_collector.sh` | `DURATION_MIN=1440`; `APPEND_EVERY_SEC=10`; `BACKFILL_SEC=120`; `SNAPSHOT_REFRESH_EVERY_HOURS=1`; `RETRAIN_AFTER_SNAPSHOT=0`; `PROMOTE_AFTER_RETRAIN=0`; `AIR1_API_URL=http://10.158.66.30:80`; `AIR1_API_KEY=9c5c3569-cfe7-42ae-bf00-e86ae08519ef`. | `DURATION_MIN=120 BACKFILL_SEC=300 SNAPSHOT_REFRESH_EVERY_HOURS=0.5 bash run_live_collector.sh` |
 | `bash train_model.sh` | Trains from `data/zone5_training_cv.csv`; `--output-dir` defaults to `model`; auto-promotes unless `ZONE5_SKIP_PROMOTE=1`. | `ZONE5_SKIP_PROMOTE=1 bash train_model.sh --n-trials 20 --max-epochs 10` |

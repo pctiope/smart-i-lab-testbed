@@ -251,7 +251,7 @@ class RtspZoneTrackerTests(unittest.TestCase):
             mqtt_port=1883,
             mqtt_client_id="care_ssl_all_zones_person_counter",
             mqtt_username="guest",
-            mqtt_password="smartilab123",
+            mqtt_password="not-a-real-password",
         )
 
         with mock.patch.object(rtsp_zone_tracker, "create_mqtt_client", return_value=RefusingClient()):
@@ -1373,8 +1373,10 @@ class AllZonesLauncherTests(unittest.TestCase):
         self.assertIn("cam2-zones.json", sh)
         self.assertIn("masks\\cam1-mask-zones.png", ps1)
         self.assertIn("masks/cam2-mask-zones.png", sh)
-        self.assertIn("10.158.71.241", combined)
-        self.assertIn("10.158.71.240", combined)
+        # RTSP sources come from env (no hardcoded credential-bearing URLs).
+        self.assertIn("AIR1_ALL_ZONES_RTSP_URL_CAM1", combined)
+        self.assertIn("AIR1_ALL_ZONES_RTSP_URL_CAM2", combined)
+        self.assertNotIn("rtsp://admin:", combined)
         self.assertIn("care_ssl/all_zones/person_count_by_zone", combined)
         self.assertIn("--camera-id", combined)
         self.assertIn("--latest-jpeg", sh)

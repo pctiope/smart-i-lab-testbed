@@ -29,7 +29,7 @@ DEFAULT_BROKER = os.getenv("OCCUPANCY_MQTT_BROKER", "10.158.71.19")
 DEFAULT_PORT = int(os.getenv("OCCUPANCY_MQTT_PORT", "1883"))
 DEFAULT_TOPIC = os.getenv("OCCUPANCY_MQTT_TOPIC", "care_ssl/all_zones/person_count_by_zone")
 DEFAULT_USERNAME = os.getenv("OCCUPANCY_MQTT_USERNAME", "guest")
-DEFAULT_PASSWORD = os.getenv("OCCUPANCY_MQTT_PASSWORD", "smartilab123")
+DEFAULT_PASSWORD = os.getenv("OCCUPANCY_MQTT_PASSWORD", "")
 DEFAULT_OUTPUT_CSV = DATA_DIR / "cv_occupancy_all_air1_10sec.csv"
 DEFAULT_OUTPUT_PARQUET = DATA_DIR / "cv_occupancy_all_air1_10sec.parquet"
 

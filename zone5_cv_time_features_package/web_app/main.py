@@ -140,12 +140,15 @@ def _build_ground_truth_source() -> CvGroundTruthTailer | None:
     enabled_raw = os.environ.get("ZONE5_CV_GROUND_TRUTH_ENABLED", "true").strip().lower()
     if enabled_raw in {"0", "false", "no", "off", "disabled"}:
         return None
+    refresh_seconds = _env_float("ZONE5_CV_GROUND_TRUTH_REFRESH_SEC", 5.0)
     if "ZONE5_CV_GROUND_TRUTH_PARQUET" in os.environ and "ZONE5_CV_GROUND_TRUTH_TABLE" not in os.environ:
         return CvGroundTruthTailer(
-            _env_path("ZONE5_CV_GROUND_TRUTH_PARQUET", DEFAULT_CV_GROUND_TRUTH_TABLE)
+            _env_path("ZONE5_CV_GROUND_TRUTH_PARQUET", DEFAULT_CV_GROUND_TRUTH_TABLE),
+            refresh_seconds=refresh_seconds,
         )
     return CvGroundTruthTailer(
-        _env_path("ZONE5_CV_GROUND_TRUTH_TABLE", DEFAULT_CV_GROUND_TRUTH_TABLE)
+        _env_path("ZONE5_CV_GROUND_TRUTH_TABLE", DEFAULT_CV_GROUND_TRUTH_TABLE),
+        refresh_seconds=refresh_seconds,
     )
 
 
@@ -233,6 +236,9 @@ async def health(request: Request) -> JSONResponse:
     inference_loop: InferenceLoop = request.app.state.inference_loop
     rtsp_grabber: FrameGrabber = request.app.state.rtsp_grabber
     config: InferenceConfig = request.app.state.config
+    # status() may (re)read the ground-truth table; keep that off the event
+    # loop so a slow read cannot stall every other endpoint.
+    inference_status = await asyncio.to_thread(inference_loop.status)
     payload = {
         "ok": True,
         "rtsp": {
@@ -241,7 +247,7 @@ async def health(request: Request) -> JSONResponse:
             "latest_frame_age_sec": rtsp_grabber.latest_frame_age,
         },
         "mask": _mask_status(getattr(request.app.state, "mask_path", _build_mask_path())),
-        "inference": inference_loop.status(),
+        "inference": inference_status,
         "config": {
             "tick_interval_sec": config.tick_interval_sec,
             "history_size": config.history_size,
