@@ -302,5 +302,17 @@ jobs:
           if not health.get("ok") or not model_run_id:
               raise SystemExit("staging backend is missing ok health or model_run_id")
           PY
-          curl --noproxy '*' -fsS http://127.0.0.1:8016/ >/dev/null
+          # The vite container runs npm ci + build before it listens; on a cold
+          # node_modules volume that takes minutes, so poll instead of one shot.
+          for attempt in $(seq 1 36); do
+            if curl --noproxy '*' -fsS http://127.0.0.1:8016/ >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 36 ]; then
+              echo "vite frontend did not become ready within 180s" >&2
+              docker compose -f compose.zone5-bsg.yaml logs --tail 20 vite-frontend >&2
+              exit 1
+            fi
+            sleep 5
+          done
           curl --noproxy '*' -fsS http://127.0.0.1:8016/api/health >/dev/null
