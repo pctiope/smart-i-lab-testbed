@@ -13,7 +13,7 @@ param(
     [int]$MqttPort = $(if ($env:PERSON_COUNT_MQTT_PORT) { [int]$env:PERSON_COUNT_MQTT_PORT } else { 1883 }),
     [string]$MqttTopic = $(if ($env:PERSON_COUNT_MQTT_TOPIC) { $env:PERSON_COUNT_MQTT_TOPIC } else { "care_ssl/all_zones/person_count_by_zone" }),
     [string]$MqttUsername = $(if ($env:PERSON_COUNT_MQTT_USERNAME) { $env:PERSON_COUNT_MQTT_USERNAME } else { "guest" }),
-    [string]$MqttPassword = $(if ($env:PERSON_COUNT_MQTT_PASSWORD) { $env:PERSON_COUNT_MQTT_PASSWORD } else { "smartilab123" }),
+    [string]$MqttPassword = $(if ($env:PERSON_COUNT_MQTT_PASSWORD) { $env:PERSON_COUNT_MQTT_PASSWORD } else { "" }),
     [int]$MqttEvery = 1,
     [int]$CountsEvery = 1
 )
@@ -53,9 +53,9 @@ if ([string]::IsNullOrWhiteSpace($CountsCsv)) {
 }
 if ([string]::IsNullOrWhiteSpace($Source)) {
     if ($Camera -eq "cam1") {
-        $Source = $(if ($env:AIR1_ALL_ZONES_RTSP_URL_CAM1) { $env:AIR1_ALL_ZONES_RTSP_URL_CAM1 } else { "rtsp://admin:++smartilab2023@10.158.71.241:554/Streaming/channels/101" })
+        $Source = $(if ($env:AIR1_ALL_ZONES_RTSP_URL_CAM1) { $env:AIR1_ALL_ZONES_RTSP_URL_CAM1 } else { "" })
     } else {
-        $Source = $(if ($env:AIR1_ALL_ZONES_RTSP_URL_CAM2) { $env:AIR1_ALL_ZONES_RTSP_URL_CAM2 } else { "rtsp://admin:++smartilab2023@10.158.71.240:554/Streaming/channels/101" })
+        $Source = $(if ($env:AIR1_ALL_ZONES_RTSP_URL_CAM2) { $env:AIR1_ALL_ZONES_RTSP_URL_CAM2 } else { "" })
     }
 }
 if ([string]::IsNullOrWhiteSpace($Source)) {

@@ -2109,7 +2109,7 @@ class PackageAuditTests(unittest.TestCase):
             mqtt_port=1883,
             mqtt_client_id="care_ssl_person_counter",
             mqtt_username="guest",
-            mqtt_password="smartilab123",
+            mqtt_password="not-a-real-password",
             mqtt_topic="care_ssl/zone5/person_count",
         )
 

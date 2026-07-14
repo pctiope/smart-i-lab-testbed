@@ -1,5 +1,5 @@
 param(
-    [string]$Source = $(if ($env:ZONE5_RTSP_URL) { $env:ZONE5_RTSP_URL } else { "rtsp://admin:++smartilab2023@10.158.71.241:554/Streaming/channels/101" }),
+    [string]$Source = $(if ($env:ZONE5_RTSP_URL) { $env:ZONE5_RTSP_URL } else { "" }),
     [string]$Script = "cv_counter\rtsp_person_mask_tracker_new.py",
     [string]$Mask = "cv_counter\masks\cam1-desk5-mask.png",
     [string]$Model = "cv_counter\models\headtracker-m.pt",
@@ -12,7 +12,7 @@ param(
     [int]$MqttPort = $(if ($env:PERSON_COUNT_MQTT_PORT) { [int]$env:PERSON_COUNT_MQTT_PORT } else { 1883 }),
     [string]$MqttTopic = $(if ($env:PERSON_COUNT_MQTT_TOPIC) { $env:PERSON_COUNT_MQTT_TOPIC } else { "care_ssl/zone5/person_count" }),
     [string]$MqttUsername = $(if ($env:PERSON_COUNT_MQTT_USERNAME) { $env:PERSON_COUNT_MQTT_USERNAME } else { "guest" }),
-    [string]$MqttPassword = $(if ($env:PERSON_COUNT_MQTT_PASSWORD) { $env:PERSON_COUNT_MQTT_PASSWORD } else { "smartilab123" }),
+    [string]$MqttPassword = $(if ($env:PERSON_COUNT_MQTT_PASSWORD) { $env:PERSON_COUNT_MQTT_PASSWORD } else { "" }),
     [int]$MqttEvery = 1,
     [int]$CountsEvery = 1,
     [string]$ShowMask = $(if ($env:PERSON_COUNT_SHOW_MASK) { $env:PERSON_COUNT_SHOW_MASK } else { "true" }),
